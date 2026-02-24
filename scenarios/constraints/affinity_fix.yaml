@@ -1,0 +1,39 @@
+name: "Affinity Constraint Fix"
+description: >
+  vm-1 and vm-2 are initially on node-A and node-B respectively.
+  An affinity rule requires them to be on the same node. The solver
+  must move at least one of them to satisfy the rule.
+
+balancing:
+  method: memory
+  balanciness: 1  # Conservative: only mandatory moves
+
+nodes:
+  node-A:
+    cpu_total: 16
+    memory_total_gb: 64
+  node-B:
+    cpu_total: 16
+    memory_total_gb: 64
+
+vms:
+  vm-1:
+    node: node-A
+    cpu: 2
+    memory_gb: 8
+  vm-2:
+    node: node-B
+    cpu: 2
+    memory_gb: 8
+
+constraints:
+  affinity:
+    - name: must-be-together
+      vms: [vm-1, vm-2]
+
+expect:
+  feasible: true
+  constraints_satisfied: true
+  max_migrations: 1
+  placements:
+    vm-2: "== vm-1"
