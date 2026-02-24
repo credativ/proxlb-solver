@@ -325,6 +325,25 @@ def _render_migration_plan(
     vm_map = {v.name: v for v in cluster.vms}
     node_map = {n.name: n for n in cluster.nodes}
 
+    if not plan.path_feasible:
+        lines.append("#### Migration Plan")
+        lines.append("")
+        lines.append(
+            "**Migration path infeasible:** The solver found a valid target "
+            "state, but there is no executable migration path to reach it. "
+            "A circular dependency exists between VMs that cannot be broken "
+            "because no temporary node satisfies all constraints "
+            "(pin, affinity, anti-affinity, capacity, maintenance)."
+        )
+        lines.append("")
+        if plan.unbreakable_cycle:
+            lines.append(
+                "**VMs in unbreakable cycle:** %s"
+                % ", ".join("`%s`" % vm for vm in plan.unbreakable_cycle)
+            )
+            lines.append("")
+        return
+
     if not plan.steps:
         return
 
@@ -1167,7 +1186,12 @@ a.anchor:hover{text-decoration:underline}
             else '<span class="badge-inline badge-err">FAIL</span>'
         )
         plan = migration_plans.get(scenario_path) if migration_plans else None
-        steps_str = str(len(plan.steps)) if plan else "&mdash;"
+        if plan and not plan.path_feasible:
+            steps_str = '<span class="badge-inline badge-err">no path</span>'
+        elif plan:
+            steps_str = str(len(plan.steps))
+        else:
+            steps_str = "&mdash;"
         if solution.feasible:
             h.append(
                 "<tr><td><a class=\"anchor\" href=\"#%s\">%s</a></td>"
@@ -1349,7 +1373,27 @@ a.anchor:hover{text-decoration:underline}
 
             # Migration plan
             plan = migration_plans.get(scenario_path) if migration_plans else None
-            if plan and plan.steps:
+            if plan and not plan.path_feasible:
+                h.append("<h4>Migration Plan</h4>")
+                h.append(
+                    '<div class="step-block temp">'
+                    '<div class="step-title">Migration Path Infeasible</div>'
+                    "<p>The solver found a valid target state, but there is no "
+                    "executable migration path to reach it. A circular "
+                    "dependency exists between VMs that cannot be broken "
+                    "because no temporary node satisfies all constraints "
+                    "(pin, affinity, anti-affinity, capacity, maintenance).</p>"
+                )
+                if plan.unbreakable_cycle:
+                    h.append(
+                        "<p><strong>VMs in unbreakable cycle:</strong> %s</p>"
+                        % ", ".join(
+                            "<code>%s</code>" % vm
+                            for vm in plan.unbreakable_cycle
+                        )
+                    )
+                h.append("</div>")
+            elif plan and plan.steps:
                 h.append("<h4>Migration Plan</h4>")
 
                 # Mermaid dependency graph

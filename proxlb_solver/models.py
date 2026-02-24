@@ -80,6 +80,8 @@ class MigrationPlan:
     steps: list[MigrationStep]
     dependency_edges: list[tuple[str, str]]  # (vm_a, vm_b) = "a waits for b"
     temp_moves: list[str]                     # VMs that need a temp move
+    path_feasible: bool = True                # False if cycles can't be broken
+    unbreakable_cycle: list[str] = field(default_factory=list)  # VMs in unbreakable cycle
 
 
 @dataclass(frozen=True)

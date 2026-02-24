@@ -439,3 +439,315 @@ def test_max_parallel_none_is_unlimited():
     result = plan_migrations(cluster, sol, max_parallel=None)
     assert len(result.steps) == 1
     assert len(result.steps[0].migrations) == 3
+
+
+# ── Constraint-aware temp node selection tests ──────────────────────
+
+
+def _make_cluster_with_constraints(nodes, vms, constraints=None, **kwargs):
+    return Cluster(
+        name="test",
+        description="",
+        balancing=Balancing(**kwargs.get("balancing_kwargs", {})),
+        nodes=nodes,
+        vms=vms,
+        constraints=constraints or Constraints(),
+        expect=Expect(),
+        evacuate_node=kwargs.get("evacuate_node"),
+    )
+
+
+def test_temp_move_respects_pin():
+    """Cycle-breaking temp node must respect pin constraints.
+
+    vm-a is pinned to {n1, n2} — temp move must NOT go to n4,
+    it must go to n3 (or wherever pin allows, excluding source/target).
+    """
+    nodes = [
+        Node("n1", 16, 60 * _GB),
+        Node("n2", 16, 60 * _GB),
+        Node("n3", 16, 64 * _GB),
+        Node("n4", 16, 64 * _GB),
+    ]
+    vms = [
+        VM("vm-a", "n1", 4, 50 * _GB),
+        VM("vm-b", "n2", 4, 50 * _GB),
+    ]
+    # Pin vm-a to only n1, n2, n3 (not n4)
+    constraints = Constraints(
+        pin=[{"vm": "vm-a", "nodes": ["n1", "n2", "n3"]}]
+    )
+    cluster = _make_cluster_with_constraints(nodes, vms, constraints)
+
+    migrations = [
+        Migration("vm-a", "n1", "n2"),
+        Migration("vm-b", "n2", "n1"),
+    ]
+    sol = Solution(
+        feasible=True,
+        placements={"vm-a": "n2", "vm-b": "n1"},
+        migrations=migrations,
+        stats=_make_stats(migration_count=2),
+    )
+
+    result = plan_migrations(cluster, sol)
+    assert len(result.temp_moves) > 0
+
+    # The temp move target must be n3 (n4 is not in pin list)
+    temp_mig = result.steps[0].migrations[0]
+    assert temp_mig.vm in result.temp_moves
+    assert temp_mig.target == "n3"
+
+
+def test_temp_move_respects_anti_affinity():
+    """Temp node must not host an anti-affinity partner.
+
+    vm-a and vm-c are anti-affine. vm-c is on n3.
+    So temp move for vm-a must NOT go to n3.
+    """
+    nodes = [
+        Node("n1", 16, 60 * _GB),
+        Node("n2", 16, 60 * _GB),
+        Node("n3", 16, 64 * _GB),
+        Node("n4", 16, 64 * _GB),
+    ]
+    vms = [
+        VM("vm-a", "n1", 4, 50 * _GB),
+        VM("vm-b", "n2", 4, 50 * _GB),
+        VM("vm-c", "n3", 2, 4 * _GB),  # anti-affinity partner on n3
+    ]
+    constraints = Constraints(
+        anti_affinity=[{"name": "spread", "vms": ["vm-a", "vm-c"]}]
+    )
+    cluster = _make_cluster_with_constraints(nodes, vms, constraints)
+
+    migrations = [
+        Migration("vm-a", "n1", "n2"),
+        Migration("vm-b", "n2", "n1"),
+    ]
+    sol = Solution(
+        feasible=True,
+        placements={"vm-a": "n2", "vm-b": "n1"},
+        migrations=migrations,
+        stats=_make_stats(migration_count=2),
+    )
+
+    result = plan_migrations(cluster, sol)
+    assert len(result.temp_moves) > 0
+
+    # Temp move must go to n4, not n3 (anti-affinity with vm-c)
+    temp_mig = result.steps[0].migrations[0]
+    assert temp_mig.target == "n4"
+
+
+def test_temp_move_respects_ignore():
+    """Ignored VMs must never be temp-moved.
+
+    If an ignored VM is in a cycle, it cannot be temp-moved.
+    The planner should try another VM in the cycle instead.
+    """
+    nodes = [
+        Node("n1", 16, 60 * _GB),
+        Node("n2", 16, 60 * _GB),
+        Node("n3", 16, 64 * _GB),
+    ]
+    vms = [
+        VM("vm-a", "n1", 4, 50 * _GB),
+        VM("vm-b", "n2", 4, 50 * _GB),
+    ]
+    constraints = Constraints(ignore=["vm-a"])
+    cluster = _make_cluster_with_constraints(nodes, vms, constraints)
+
+    migrations = [
+        Migration("vm-a", "n1", "n2"),
+        Migration("vm-b", "n2", "n1"),
+    ]
+    sol = Solution(
+        feasible=True,
+        placements={"vm-a": "n2", "vm-b": "n1"},
+        migrations=migrations,
+        stats=_make_stats(migration_count=2),
+    )
+
+    result = plan_migrations(cluster, sol)
+    # vm-a is ignored so cannot be temp-moved; vm-b should be temp-moved
+    if result.temp_moves:
+        assert "vm-a" not in result.temp_moves
+        assert "vm-b" in result.temp_moves
+
+
+def test_temp_move_respects_maintenance():
+    """Temp node must not be a maintenance node."""
+    nodes = [
+        Node("n1", 16, 60 * _GB),
+        Node("n2", 16, 60 * _GB),
+        Node("n3", 16, 64 * _GB, maintenance=True),
+        Node("n4", 16, 64 * _GB),
+    ]
+    vms = [
+        VM("vm-a", "n1", 4, 50 * _GB),
+        VM("vm-b", "n2", 4, 50 * _GB),
+    ]
+    cluster = _make_cluster_with_constraints(nodes, vms)
+
+    migrations = [
+        Migration("vm-a", "n1", "n2"),
+        Migration("vm-b", "n2", "n1"),
+    ]
+    sol = Solution(
+        feasible=True,
+        placements={"vm-a": "n2", "vm-b": "n1"},
+        migrations=migrations,
+        stats=_make_stats(migration_count=2),
+    )
+
+    result = plan_migrations(cluster, sol)
+    assert len(result.temp_moves) > 0
+
+    # Temp move must go to n4, not n3 (maintenance)
+    temp_mig = result.steps[0].migrations[0]
+    assert temp_mig.target == "n4"
+
+
+def test_temp_move_respects_ram_capacity():
+    """Temp node must have enough RAM for the VM."""
+    nodes = [
+        Node("n1", 16, 60 * _GB),
+        Node("n2", 16, 60 * _GB),
+        Node("n3", 16, 64 * _GB),  # has 60GB used already
+        Node("n4", 16, 64 * _GB),  # empty — fits
+    ]
+    vms = [
+        VM("vm-a", "n1", 4, 50 * _GB),
+        VM("vm-b", "n2", 4, 50 * _GB),
+        VM("vm-c", "n3", 2, 60 * _GB),  # fills n3
+    ]
+    cluster = _make_cluster_with_constraints(nodes, vms)
+
+    migrations = [
+        Migration("vm-a", "n1", "n2"),
+        Migration("vm-b", "n2", "n1"),
+    ]
+    sol = Solution(
+        feasible=True,
+        placements={"vm-a": "n2", "vm-b": "n1"},
+        migrations=migrations,
+        stats=_make_stats(migration_count=2),
+    )
+
+    result = plan_migrations(cluster, sol)
+    assert len(result.temp_moves) > 0
+
+    # n3 has only 4GB free (64-60), vm needs 50GB — must use n4
+    temp_mig = result.steps[0].migrations[0]
+    assert temp_mig.target == "n4"
+
+
+def test_temp_move_respects_cpu_capacity():
+    """Temp node must have enough CPU (with overcommit) for the VM."""
+    nodes = [
+        Node("n1", 16, 60 * _GB),
+        Node("n2", 16, 60 * _GB),
+        Node("n3", 8, 128 * _GB),   # only 8 CPUs, already 7 used
+        Node("n4", 16, 128 * _GB),  # 16 CPUs, empty
+    ]
+    vms = [
+        VM("vm-a", "n1", 4, 50 * _GB),
+        VM("vm-b", "n2", 4, 50 * _GB),
+        VM("vm-c", "n3", 7, 4 * _GB),  # uses 7 of 8 CPUs on n3
+    ]
+    # cpu_overcommit=1.0 means no overcommit: n3 has 1 CPU free, vm needs 4
+    cluster = _make_cluster_with_constraints(
+        nodes, vms,
+        balancing_kwargs={"cpu_overcommit": 1.0},
+    )
+
+    migrations = [
+        Migration("vm-a", "n1", "n2"),
+        Migration("vm-b", "n2", "n1"),
+    ]
+    sol = Solution(
+        feasible=True,
+        placements={"vm-a": "n2", "vm-b": "n1"},
+        migrations=migrations,
+        stats=_make_stats(migration_count=2),
+    )
+
+    result = plan_migrations(cluster, sol)
+    assert len(result.temp_moves) > 0
+
+    # n3 can't fit 4 CPUs (only 1 free with overcommit=1.0) — must use n4
+    temp_mig = result.steps[0].migrations[0]
+    assert temp_mig.target == "n4"
+
+
+def test_unbreakable_cycle():
+    """Cycle where no VM can be temp-moved → path_feasible=False."""
+    nodes = [
+        Node("n1", 16, 60 * _GB),
+        Node("n2", 16, 60 * _GB),
+        Node("n3", 16, 64 * _GB, maintenance=True),  # only spare, but maintenance
+    ]
+    vms = [
+        VM("vm-a", "n1", 4, 50 * _GB),
+        VM("vm-b", "n2", 4, 50 * _GB),
+    ]
+    # Both pinned away from n3
+    constraints = Constraints(
+        pin=[
+            {"vm": "vm-a", "nodes": ["n1", "n2"]},
+            {"vm": "vm-b", "nodes": ["n1", "n2"]},
+        ]
+    )
+    cluster = _make_cluster_with_constraints(nodes, vms, constraints)
+
+    migrations = [
+        Migration("vm-a", "n1", "n2"),
+        Migration("vm-b", "n2", "n1"),
+    ]
+    sol = Solution(
+        feasible=True,
+        placements={"vm-a": "n2", "vm-b": "n1"},
+        migrations=migrations,
+        stats=_make_stats(migration_count=2),
+    )
+
+    result = plan_migrations(cluster, sol)
+    assert result.path_feasible is False
+    assert set(result.unbreakable_cycle) == {"vm-a", "vm-b"}
+    assert result.steps == []
+
+
+def test_temp_move_respects_evacuate_node():
+    """Temp node must not be the evacuate node."""
+    nodes = [
+        Node("n1", 16, 60 * _GB),
+        Node("n2", 16, 60 * _GB),
+        Node("n3", 16, 64 * _GB),
+        Node("n4", 16, 64 * _GB),
+    ]
+    vms = [
+        VM("vm-a", "n1", 4, 50 * _GB),
+        VM("vm-b", "n2", 4, 50 * _GB),
+    ]
+    cluster = _make_cluster_with_constraints(
+        nodes, vms, evacuate_node="n3",
+    )
+
+    migrations = [
+        Migration("vm-a", "n1", "n2"),
+        Migration("vm-b", "n2", "n1"),
+    ]
+    sol = Solution(
+        feasible=True,
+        placements={"vm-a": "n2", "vm-b": "n1"},
+        migrations=migrations,
+        stats=_make_stats(migration_count=2),
+    )
+
+    result = plan_migrations(cluster, sol)
+    assert len(result.temp_moves) > 0
+
+    # n3 is evacuate node — must use n4
+    temp_mig = result.steps[0].migrations[0]
+    assert temp_mig.target == "n4"

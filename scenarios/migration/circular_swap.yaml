@@ -32,9 +32,9 @@ vms:
 constraints:
   pin:
     - vm: vm-a
-      nodes: [node-B]
+      nodes: [node-B, node-C]
     - vm: vm-b
-      nodes: [node-A]
+      nodes: [node-A, node-C]
 
 expect:
   feasible: true
