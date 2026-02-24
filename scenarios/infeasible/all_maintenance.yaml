@@ -1,0 +1,28 @@
+name: "Infeasible — All Nodes Maintenance"
+description: >
+  Every node in the cluster is in maintenance mode.
+  No node is available to host any VM.
+
+balancing:
+  method: memory
+  cpu_overcommit: 2.0
+
+nodes:
+  node-A:
+    cpu_total: 16
+    memory_total_gb: 64
+    maintenance: true
+  node-B:
+    cpu_total: 16
+    memory_total_gb: 64
+    maintenance: true
+
+vms:
+  orphan-01:
+    node: node-A
+    cpu: 2
+    memory_gb: 8
+    type: vm
+
+expect:
+  feasible: false

@@ -1,0 +1,45 @@
+name: "Affinity Group"
+description: "Web servers must be colocated on the same node."
+
+balancing:
+  method: memory
+  cpu_overcommit: 2.0
+
+nodes:
+  node-A:
+    cpu_total: 16
+    memory_total_gb: 64
+  node-B:
+    cpu_total: 16
+    memory_total_gb: 64
+  node-C:
+    cpu_total: 16
+    memory_total_gb: 64
+
+vms:
+  web-01:
+    node: node-A
+    cpu: 2
+    memory_gb: 8
+    type: vm
+  web-02:
+    node: node-B
+    cpu: 2
+    memory_gb: 8
+    type: vm
+  worker-01:
+    node: node-C
+    cpu: 2
+    memory_gb: 8
+    type: vm
+
+constraints:
+  affinity:
+    - name: web-group
+      vms: [web-01, web-02]
+
+expect:
+  feasible: true
+  constraints_satisfied: true
+  placements:
+    web-01: "== web-02"

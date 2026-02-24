@@ -1,0 +1,37 @@
+name: "Infeasible — Ignored VM on Maintenance Node"
+description: >
+  VM is marked as ignored (must stay on current node), but its
+  current node is in maintenance (no VMs allowed). These two
+  constraints contradict each other.
+
+balancing:
+  method: memory
+  cpu_overcommit: 2.0
+
+nodes:
+  node-A:
+    cpu_total: 16
+    memory_total_gb: 64
+  node-B:
+    cpu_total: 16
+    memory_total_gb: 64
+    maintenance: true
+
+vms:
+  pinned-vm:
+    node: node-B
+    cpu: 2
+    memory_gb: 8
+    type: vm
+  normal-vm:
+    node: node-A
+    cpu: 2
+    memory_gb: 8
+    type: vm
+
+constraints:
+  ignore:
+    - pinned-vm
+
+expect:
+  feasible: false

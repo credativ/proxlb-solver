@@ -1,0 +1,40 @@
+name: "Balanciness Level 5 — Aggressive"
+description: >
+  Same cluster as the conservative scenario but with balanciness=5
+  (Aggressive). Like VMware DRS Level 5: pursue near-perfect balance,
+  migration cost is negligible. Should rebalance the VMs.
+
+balancing:
+  method: memory
+  balanciness: 5
+  cpu_overcommit: 2.0
+
+nodes:
+  node-A:
+    cpu_total: 16
+    memory_total_gb: 64
+  node-B:
+    cpu_total: 16
+    memory_total_gb: 64
+
+vms:
+  app-01:
+    node: node-A
+    cpu: 2
+    memory_gb: 24
+    type: vm
+  app-02:
+    node: node-A
+    cpu: 2
+    memory_gb: 16
+    type: vm
+  app-03:
+    node: node-B
+    cpu: 2
+    memory_gb: 8
+    type: vm
+
+expect:
+  feasible: true
+  constraints_satisfied: true
+  spread_improved: true

@@ -1,0 +1,35 @@
+name: "Anti-Affinity"
+description: "DB primary and replica must be on different nodes."
+
+balancing:
+  method: memory
+  cpu_overcommit: 2.0
+
+nodes:
+  node-A:
+    cpu_total: 16
+    memory_total_gb: 64
+  node-B:
+    cpu_total: 16
+    memory_total_gb: 64
+
+vms:
+  db-primary:
+    node: node-A
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  db-replica:
+    node: node-A
+    cpu: 4
+    memory_gb: 16
+    type: vm
+
+constraints:
+  anti_affinity:
+    - name: db-sep
+      vms: [db-primary, db-replica]
+
+expect:
+  feasible: true
+  constraints_satisfied: true

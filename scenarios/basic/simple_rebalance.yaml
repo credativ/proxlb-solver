@@ -1,0 +1,32 @@
+name: "Simple Rebalance"
+description: "Two VMs on one node, none on another — solver should spread."
+
+balancing:
+  method: memory
+  cpu_overcommit: 2.0
+
+nodes:
+  node-A:
+    cpu_total: 16
+    memory_total_gb: 64
+  node-B:
+    cpu_total: 16
+    memory_total_gb: 64
+
+vms:
+  app-01:
+    node: node-A
+    cpu: 2
+    memory_gb: 16
+    type: vm
+  app-02:
+    node: node-A
+    cpu: 2
+    memory_gb: 16
+    type: vm
+
+expect:
+  feasible: true
+  constraints_satisfied: true
+  spread_improved: true
+  max_migrations: 1

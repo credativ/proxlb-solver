@@ -1,0 +1,46 @@
+name: "Chain Dependency"
+description: "VM-B is pinned to node-B, but node-B is full with VM-C — VM-C must vacate first."
+
+balancing:
+  method: memory
+  balanciness: 5
+  cpu_overcommit: 2.0
+
+nodes:
+  node-A:
+    cpu_total: 16
+    memory_total_gb: 64
+  node-B:
+    cpu_total: 16
+    memory_total_gb: 64
+  node-C:
+    cpu_total: 16
+    memory_total_gb: 64
+
+vms:
+  vm-a:
+    node: node-A
+    cpu: 2
+    memory_gb: 16
+    type: vm
+  vm-b:
+    node: node-A
+    cpu: 4
+    memory_gb: 40
+    type: vm
+  vm-c:
+    node: node-B
+    cpu: 4
+    memory_gb: 48
+    type: vm
+
+constraints:
+  pin:
+    - vm: vm-b
+      nodes: [node-B]
+
+expect:
+  feasible: true
+  constraints_satisfied: true
+  placements:
+    vm-b: node-B

@@ -1,0 +1,48 @@
+name: "Evacuate Node — Success"
+description: >
+  Node-B must be drained for maintenance. Enough capacity exists
+  on the remaining nodes to absorb all VMs.
+
+evacuate_node: node-B
+
+balancing:
+  method: memory
+  cpu_overcommit: 2.0
+
+nodes:
+  node-A:
+    cpu_total: 16
+    memory_total_gb: 128
+  node-B:
+    cpu_total: 16
+    memory_total_gb: 64
+  node-C:
+    cpu_total: 16
+    memory_total_gb: 128
+
+vms:
+  app-01:
+    node: node-A
+    cpu: 2
+    memory_gb: 16
+    type: vm
+  app-02:
+    node: node-B
+    cpu: 2
+    memory_gb: 16
+    type: vm
+  app-03:
+    node: node-B
+    cpu: 2
+    memory_gb: 16
+    type: vm
+  app-04:
+    node: node-C
+    cpu: 2
+    memory_gb: 16
+    type: vm
+
+expect:
+  feasible: true
+  constraints_satisfied: true
+  node_empty: node-B

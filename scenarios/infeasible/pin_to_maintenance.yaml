@@ -1,0 +1,39 @@
+name: "Infeasible — Pin to Maintenance Node"
+description: >
+  VM is pinned to node-B, but node-B is in maintenance.
+  The pin constraint and maintenance constraint contradict
+  each other — no valid placement.
+
+balancing:
+  method: memory
+  cpu_overcommit: 2.0
+
+nodes:
+  node-A:
+    cpu_total: 16
+    memory_total_gb: 64
+  node-B:
+    cpu_total: 16
+    memory_total_gb: 64
+    maintenance: true
+
+vms:
+  stuck-vm:
+    node: node-B
+    cpu: 2
+    memory_gb: 8
+    type: vm
+  free-vm:
+    node: node-A
+    cpu: 2
+    memory_gb: 8
+    type: vm
+
+constraints:
+  pin:
+    - vm: stuck-vm
+      nodes: [node-B]
+      strict: true
+
+expect:
+  feasible: false

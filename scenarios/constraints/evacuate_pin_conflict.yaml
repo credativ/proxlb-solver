@@ -1,0 +1,43 @@
+name: "Evacuate Node — Pin Conflict"
+description: >
+  Node-A must be drained, but the monitor VM is pinned to node-A.
+  The solver should report infeasible and identify monitor as the
+  blocking VM.
+
+evacuate_node: node-A
+
+balancing:
+  method: memory
+  cpu_overcommit: 2.0
+
+nodes:
+  node-A:
+    cpu_total: 16
+    memory_total_gb: 64
+  node-B:
+    cpu_total: 16
+    memory_total_gb: 64
+  node-C:
+    cpu_total: 16
+    memory_total_gb: 64
+
+vms:
+  monitor:
+    node: node-A
+    cpu: 1
+    memory_gb: 4
+    type: vm
+  app-01:
+    node: node-A
+    cpu: 2
+    memory_gb: 8
+    type: vm
+
+constraints:
+  pin:
+    - vm: monitor
+      nodes: [node-A]
+      strict: true
+
+expect:
+  feasible: false

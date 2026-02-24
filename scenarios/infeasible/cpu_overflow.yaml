@@ -1,0 +1,36 @@
+name: "Infeasible — CPU Overflow"
+description: >
+  Total VM CPU demand exceeds cluster capacity even with
+  overcommit factor 1.0. No valid placement exists.
+
+balancing:
+  method: memory
+  cpu_overcommit: 1.0
+
+nodes:
+  node-A:
+    cpu_total: 8
+    memory_total_gb: 128
+  node-B:
+    cpu_total: 8
+    memory_total_gb: 128
+
+vms:
+  cpu-hog-01:
+    node: node-A
+    cpu: 6
+    memory_gb: 4
+    type: vm
+  cpu-hog-02:
+    node: node-A
+    cpu: 6
+    memory_gb: 4
+    type: vm
+  cpu-hog-03:
+    node: node-B
+    cpu: 6
+    memory_gb: 4
+    type: vm
+
+expect:
+  feasible: false

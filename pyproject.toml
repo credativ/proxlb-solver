@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "proxlb-solver"
+version = "0.1.0"
+description = "CP-SAT based VM scheduler for ProxLB"
+requires-python = ">=3.9"
+dependencies = [
+    "ortools>=9.9",
+    "PyYAML>=6.0",
+    "rich>=13.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "flake8>=7.0",
+]
+
+[tool.setuptools.packages.find]
+include = ["proxlb_solver*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
