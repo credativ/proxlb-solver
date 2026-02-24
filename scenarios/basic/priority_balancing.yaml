@@ -1,0 +1,24 @@
+name: "VM Priorities — Prod vs Test"
+description: >
+  Two VMs with the same RAM usage (10 GB) are on Node-A.
+  vm-prod has priority 3, vm-test has priority 1.
+  The solver should prioritize moving the high-priority VM to the idle Node-B
+  to ensure it has the best resource availability.
+
+balancing:
+  method: memory
+  balanciness: 5
+  w_stickiness: 0
+
+nodes:
+  node-A: {cpu_total: 10, memory_total_gb: 32}
+  node-B: {cpu_total: 10, memory_total_gb: 32}
+
+vms:
+  vm-prod: {node: node-A, cpu: 1, memory_gb: 10, priority: 3}
+  vm-test: {node: node-A, cpu: 1, memory_gb: 10, priority: 1}
+
+expect:
+  feasible: true
+  placements:
+    vm-prod: node-B # Prod gets the empty node

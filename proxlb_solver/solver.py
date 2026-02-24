@@ -27,7 +27,7 @@ _BALANCINESS_PROFILES = {
 
 
 def _initial_load_gap_single(cluster: Cluster, method: str) -> float:
-    """Helper to calculate initial gap for a specific smart or base method."""
+    """Helper to calculate initial gap for a specific smart or base method, considering VM priority."""
     bal = cluster.balancing
     usage_loads = []
     psi_loads = []
@@ -35,19 +35,20 @@ def _initial_load_gap_single(cluster: Cluster, method: str) -> float:
     for node in cluster.nodes:
         if node.maintenance: continue
         if method == "cpu_smart" or method == "cpu":
-            u_used = sum(vm.cpu_usage for vm in cluster.vms if vm.node == node.name)
+            # Priority weights the impact of the load on the gap
+            u_used = sum(vm.cpu_usage * vm.priority for vm in cluster.vms if vm.node == node.name)
             u_total = node.cpu_total
-            p_used = sum(vm.cpu_pressure for vm in cluster.vms if vm.node == node.name)
+            p_used = sum(vm.cpu_pressure * vm.priority for vm in cluster.vms if vm.node == node.name)
             w_u, w_p = bal.w_cpu_usage, bal.w_cpu_psi
         elif method == "memory_smart" or method == "memory":
-            u_used = sum(vm.memory for vm in cluster.vms if vm.node == node.name)
+            u_used = sum(vm.memory * vm.priority for vm in cluster.vms if vm.node == node.name)
             u_total = node.memory_total
-            p_used = sum(vm.memory_pressure for vm in cluster.vms if vm.node == node.name)
+            p_used = sum(vm.memory_pressure * vm.priority for vm in cluster.vms if vm.node == node.name)
             w_u, w_p = bal.w_mem_usage, bal.w_mem_psi
         elif method == "io_smart" or method == "io_psi":
-            u_used = sum(sum(vm.disks.values()) for vm in cluster.vms if vm.node == node.name)
+            u_used = sum(sum(vm.disks.values()) * vm.priority for vm in cluster.vms if vm.node == node.name)
             u_total = sum(node.storage_free.values()) or 1
-            p_used = sum(vm.io_pressure for vm in cluster.vms if vm.node == node.name)
+            p_used = sum(vm.io_pressure * vm.priority for vm in cluster.vms if vm.node == node.name)
             w_u, w_p = bal.w_io_usage, bal.w_io_psi
         else: return 0.0
         
@@ -84,19 +85,19 @@ def _initial_load_gap(cluster: Cluster) -> float:
     for node in cluster.nodes:
         if node.maintenance: continue
         if method == "cpu":
-            used = sum(vm.cpu_usage for vm in cluster.vms if vm.node == node.name)
+            used = sum(vm.cpu_usage * vm.priority for vm in cluster.vms if vm.node == node.name)
             total = node.cpu_total
         elif method == "cpu_psi":
-            used = sum(vm.cpu_pressure for vm in cluster.vms if vm.node == node.name)
+            used = sum(vm.cpu_pressure * vm.priority for vm in cluster.vms if vm.node == node.name)
             total = 100.0
         elif method == "memory_psi":
-            used = sum(vm.memory_pressure for vm in cluster.vms if vm.node == node.name)
+            used = sum(vm.memory_pressure * vm.priority for vm in cluster.vms if vm.node == node.name)
             total = 100.0
         elif method == "io_psi":
-            used = sum(vm.io_pressure for vm in cluster.vms if vm.node == node.name)
+            used = sum(vm.io_pressure * vm.priority for vm in cluster.vms if vm.node == node.name)
             total = 100.0
         else: # memory
-            used = sum(vm.memory for vm in cluster.vms if vm.node == node.name)
+            used = sum(vm.memory * vm.priority for vm in cluster.vms if vm.node == node.name)
             total = node.memory_total
         pct = used / total if total else 0
         loads.append(pct)
@@ -137,12 +138,6 @@ def _find_blocking_vms(cluster: Cluster, time_limit_s: float) -> list[str]:
             other_load = sum(v.memory for v in vms if v.node == node.name and v.name != test_vm.name)
             avail_mb = (node.memory_total - other_load) // _MB
             if test_vm.memory // _MB > avail_mb: model.add(y[j] == 0)
-        overcommit_1000 = int(bal.cpu_overcommit * 1000)
-        for j, node in enumerate(nodes):
-            if j == node_idx[evac_node]: continue
-            other_cpu = sum(v.cpu for v in vms if v.node == node.name and v.name != test_vm.name)
-            avail_cpu_1000 = node.cpu_total * overcommit_1000 - other_cpu * 1000
-            if test_vm.cpu * 1000 > avail_cpu_1000: model.add(y[j] == 0)
         solver = cp_model.CpSolver()
         solver.parameters.max_time_in_seconds = min(time_limit_s, 5.0)
         if solver.solve(model) not in (cp_model.OPTIMAL, cp_model.FEASIBLE): blockers.append(test_vm.name)
@@ -171,6 +166,8 @@ def solve(cluster: Cluster, time_limit_s: float = 30.0, forbidden_placements: li
             for i in range(len(vms)): model.add(x[i][evj] == 0)
     for i, vm in enumerate(vms):
         if vm.name in cons.ignore: model.add(x[i][node_idx[vm.node]] == 1)
+    
+    # Hard Capacity constraints (Priorities NOT used here, only raw capacity)
     for j, node in enumerate(nodes):
         model.add(sum((vms[i].memory // _MB) * x[i][j] for i in range(len(vms))) <= (node.memory_total - node.memory_reserve) // _MB)
         model.add(sum(vms[i].cpu * 1000 * x[i][j] for i in range(len(vms))) <= max(0, node.cpu_total - node.cpu_reserve) * int(bal.cpu_overcommit * 1000))
@@ -196,33 +193,34 @@ def solve(cluster: Cluster, time_limit_s: float = 30.0, forbidden_placements: li
 
     # ── Objective ──
     method = bal.method
-    max_load_val = _LOAD_SCALE * 5
+    max_load_val = _LOAD_SCALE * 15 # Increased for priorities (max 3x load)
     
     def add_smart_gap(m_type):
         u_vars, p_vars = [], []
         for j, node in enumerate(nodes):
             if node.maintenance: continue
             if m_type == "cpu":
-                cap, used = max(1, node.cpu_total - node.cpu_reserve), sum(int(vms[i].cpu_usage * _LOAD_SCALE) * x[i][j] for i in range(len(vms)))
+                cap, used = max(1, node.cpu_total - node.cpu_reserve), sum(int(vms[i].cpu_usage * vms[i].priority * _LOAD_SCALE) * x[i][j] for i in range(len(vms)))
             elif m_type == "memory":
-                cap, used = max(1, (node.memory_total - node.memory_reserve) // _MB), sum((vms[i].memory // _MB) * _LOAD_SCALE * x[i][j] for i in range(len(vms)))
+                cap, used = max(1, (node.memory_total - node.memory_reserve) // _MB), sum((vms[i].memory * vms[i].priority // _MB) * _LOAD_SCALE * x[i][j] for i in range(len(vms)))
             else: # io
-                cap, used = max(1, sum(node.storage_free.values()) // _MB), sum((sum(vms[i].disks.values()) // _MB) * _LOAD_SCALE * x[i][j] for i in range(len(vms)))
+                cap, used = max(1, sum(node.storage_free.values()) // _MB), sum((sum(vms[i].disks.values()) * vms[i].priority // _MB) * _LOAD_SCALE * x[i][j] for i in range(len(vms)))
             uv = model.new_int_var(0, max_load_val, f"u_{m_type}_{node.name}")
             model.add_division_equality(uv, used, model.new_constant(cap))
             u_vars.append(uv)
-            ps = sum(int((vms[i].cpu_pressure if m_type == "cpu" else vms[i].memory_pressure if m_type == "memory" else vms[i].io_pressure) * _LOAD_SCALE) * x[i][j] for i in range(len(vms)))
-            pv = model.new_int_var(0, _LOAD_SCALE, f"p_{m_type}_{node.name}")
-            model.add_division_equality(pv, ps, model.new_constant(100))
+            
+            p_sum = sum(int((vms[i].cpu_pressure if m_type == "cpu" else vms[i].memory_pressure if m_type == "memory" else vms[i].io_pressure) * vms[i].priority * _LOAD_SCALE) * x[i][j] for i in range(len(vms)))
+            pv = model.new_int_var(0, 3 * _LOAD_SCALE, f"p_{m_type}_{node.name}")
+            model.add_division_equality(pv, p_sum, model.new_constant(100))
             p_vars.append(pv)
         ug = model.new_int_var(0, max_load_val, f"ug_{m_type}")
         if u_vars:
             mxu, mnu = model.new_int_var(0, max_load_val, f"mxu_{m_type}"), model.new_int_var(0, max_load_val, f"mnu_{m_type}")
             model.add_max_equality(mxu, u_vars), model.add_min_equality(mnu, u_vars), model.add(ug == mxu - mnu)
         else: model.add(ug == 0)
-        pg = model.new_int_var(0, _LOAD_SCALE, f"pg_{m_type}")
+        pg = model.new_int_var(0, 3 * _LOAD_SCALE, f"pg_{m_type}")
         if p_vars:
-            mxp, mnp = model.new_int_var(0, _LOAD_SCALE, f"mxp_{m_type}"), model.new_int_var(0, _LOAD_SCALE, f"mnp_{m_type}")
+            mxp, mnp = model.new_int_var(0, 3 * _LOAD_SCALE, f"mxp_{m_type}"), model.new_int_var(0, 3 * _LOAD_SCALE, f"mnp_{m_type}")
             model.add_max_equality(mxp, p_vars), model.add_min_equality(mnp, p_vars), model.add(pg == mxp - mnp)
         else: model.add(pg == 0)
         return ug, pg
@@ -244,10 +242,12 @@ def solve(cluster: Cluster, time_limit_s: float = 30.0, forbidden_placements: li
         lvars = []
         for j, node in enumerate(nodes):
             if node.maintenance: continue
-            if method == "cpu": cap, used = max(1, node.cpu_total - node.cpu_reserve), sum(int(vms[i].cpu_usage * _LOAD_SCALE) * x[i][j] for i in range(len(vms)))
+            if method == "cpu": 
+                cap, used = max(1, node.cpu_total - node.cpu_reserve), sum(int(vms[i].cpu_usage * vms[i].priority * _LOAD_SCALE) * x[i][j] for i in range(len(vms)))
             elif method in ["cpu_psi", "memory_psi", "io_psi"]:
-                cap, used = 100, sum(int((vms[i].cpu_pressure if method == "cpu_psi" else vms[i].memory_pressure if method == "memory_psi" else vms[i].io_pressure) * _LOAD_SCALE) * x[i][j] for i in range(len(vms)))
-            else: cap, used = max(1, (node.memory_total - node.memory_reserve) // _MB), sum((vms[i].memory // _MB) * _LOAD_SCALE * x[i][j] for i in range(len(vms)))
+                cap, used = 100, sum(int((vms[i].cpu_pressure if method == "cpu_psi" else vms[i].memory_pressure if method == "memory_psi" else vms[i].io_pressure) * vms[i].priority * _LOAD_SCALE) * x[i][j] for i in range(len(vms)))
+            else: # memory
+                cap, used = max(1, (node.memory_total - node.memory_reserve) // _MB), sum((vms[i].memory * vms[i].priority // _MB) * _LOAD_SCALE * x[i][j] for i in range(len(vms)))
             lv = model.new_int_var(0, max_load_val, f"l_{node.name}")
             model.add_division_equality(lv, used, model.new_constant(cap)), lvars.append(lv)
         load_gap = model.new_int_var(0, max_load_val, "gap")

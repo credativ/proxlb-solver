@@ -31,6 +31,7 @@ class VM:
     memory_pressure: float = 0.0
     io_pressure: float = 0.0
     disks: dict[str, int] = field(default_factory=dict)  # name -> required bytes
+    priority: int = 2  # 1=Low, 2=Normal, 3=High
     vm_type: str = "vm"  # "vm" or "ct"
 
 

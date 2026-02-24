@@ -88,6 +88,7 @@ def load_scenario(path: str | Path) -> Cluster:
             memory_pressure=vd.get("memory_pressure", 0.0),
             io_pressure=vd.get("io_pressure", 0.0),
             disks=disks,
+            priority=vd.get("priority", 2),
             vm_type=vd.get("type", "vm"),
         ))
 
