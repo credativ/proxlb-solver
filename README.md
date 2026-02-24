@@ -112,6 +112,43 @@ expect:
 
 The solver minimizes: `w_balance x LoadGap + w_stickiness x MigrationCount`
 
+## CPU Balancing Strategy (VMware-style)
+
+ProxLB CP-SAT uses a two-tiered approach for CPU management to ensure both stability and performance:
+
+1.  **Hard Capacity Constraint (vCPUs/Cores)**: The solver ensures that the sum of configured vCPUs on a node never exceeds the physical core count multiplied by the `cpu_overcommit` factor. This prevents "logical overloading" where too many VMs are cramped onto a host, even if they are currently idle.
+2.  **Soft Optimization Objective (CPU Load)**: When rebalancing, the solver uses the *actual* historical CPU usage (e.g., 1-hour average). It strives to distribute the real compute pressure evenly across the cluster to minimize CPU-Ready time and Steal time.
+
+### Why not just use current usage?
+Relying solely on current CPU usage leads to "ghost migrations"—moving VMs to react to short-lived spikes. By using vCPUs as a hard limit and historical load for balancing, we achieve a stable distribution that respects physical limits while optimizing for actual performance.
+
+### Future: Pressure Stall Information (PSI)
+While load-based balancing is robust, **PSI** (available in Proxmox 9+) provides even better signals by measuring how long processes actually *wait* for CPU. Integrating PSI into the solver's objective function is the planned next step for even more intelligent scheduling.
+
+## Live Simulation
+
+You can test the solver against a real Proxmox cluster without performing any actual migrations. This is done in two steps to ensure compatibility with your existing ProxLB installation.
+
+### Step 1: Export Cluster Data
+Run the exporter script (located in `scripts/export_proxlb_data.py`) from within your ProxLB directory to create a JSON snapshot:
+
+```bash
+cd path/to/ProxLB/proxlb
+python3 /path/to/proxlb-solver/scripts/export_proxlb_data.py /path/to/proxlb.yaml /tmp/cluster_dump.json
+```
+
+### Step 2: Run Simulation
+Use the `simulate` tool to see how the CP-SAT solver would optimize your cluster:
+
+```bash
+python3 -m proxlb_solver.simulate /tmp/cluster_dump.json
+```
+
+The simulator will show:
+- Current vs. Optimal node utilization.
+- A list of proposed migrations.
+- A step-by-step execution plan (including parallel moves and cycle breaking).
+
 ## Migration Planner
 
 The planner takes the solver's flat migration list and produces an executable step plan:
