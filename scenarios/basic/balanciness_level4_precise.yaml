@@ -1,0 +1,39 @@
+name: "Balanciness Level 4 — High Precision"
+description: >
+  Cluster with 10% load gap and balanciness=4 (High).
+  Threshold for Level 4 is 5%. Rebalancing should occur.
+
+balancing:
+  method: memory
+  balanciness: 4
+
+nodes:
+  node-A:
+    cpu_total: 16
+    memory_total_gb: 100
+  node-B:
+    cpu_total: 16
+    memory_total_gb: 100
+
+vms:
+  vm-1:
+    node: node-A
+    cpu: 1
+    memory_gb: 5
+  vm-2:
+    node: node-A
+    cpu: 1
+    memory_gb: 5
+  vm-3:
+    node: node-A
+    cpu: 1
+    memory_gb: 5
+  vm-4:
+    node: node-B
+    cpu: 1
+    memory_gb: 5
+
+expect:
+  feasible: true
+  spread_improved: true
+  max_migrations: 1

@@ -1,0 +1,34 @@
+name: "Balanciness Level 5 — Tie-Breaker"
+description: >
+  Two VMs of equal size on two nodes. The cluster is perfectly balanced.
+  Even at Level 5 (Aggressive), the solver should NOT swap the VMs, 
+  as the stickiness (weight 1) acts as a tie-breaker when balance is equal.
+
+balancing:
+  method: memory
+  balanciness: 5
+
+nodes:
+  node-A:
+    cpu_total: 16
+    memory_total_gb: 64
+  node-B:
+    cpu_total: 16
+    memory_total_gb: 64
+
+vms:
+  vm-1:
+    node: node-A
+    cpu: 4
+    memory_gb: 32
+  vm-2:
+    node: node-B
+    cpu: 4
+    memory_gb: 32
+
+expect:
+  feasible: true
+  max_migrations: 0
+  placements:
+    vm-1: node-A
+    vm-2: node-B

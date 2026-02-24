@@ -11,8 +11,8 @@ from .planner import plan_migrations
 
 # Scale RAM to MB for integer arithmetic
 _MB = 1024 * 1024
-# Scale load percentages ×100000 for integer precision
-_LOAD_SCALE = 100000
+# Scale load percentages ×10000 for integer precision
+_LOAD_SCALE = 10000
 
 # VMware DRS-style balanciness profiles
 # (w_balance, w_stickiness, migration_threshold as fraction 0.0–1.0)
