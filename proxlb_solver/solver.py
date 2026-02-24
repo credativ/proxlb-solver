@@ -8,6 +8,7 @@ from ortools.sat.python import cp_model
 
 from .models import Balancing, Cluster, Migration, Solution, SolverStats, MigrationPlan
 from .planner import plan_migrations
+from .validator import validate_and_merge_constraints, RuleConflictError
 
 # Scale RAM to MB for integer arithmetic
 _MB = 1024 * 1024
@@ -26,15 +27,21 @@ _BALANCINESS_PROFILES = {
 
 
 def _initial_load_gap(cluster: Cluster) -> float:
-    """Compute the current RAM load gap before any optimization."""
+    """Compute the initial load gap for the configured method (memory or cpu)."""
+    method = cluster.balancing.method
     loads = []
     for node in cluster.nodes:
         if node.maintenance:
             continue
-        used = sum(
-            vm.memory for vm in cluster.vms if vm.node == node.name
-        )
-        pct = used / node.memory_total if node.memory_total else 0
+        
+        if method == "cpu":
+            used = sum(vm.cpu for vm in cluster.vms if vm.node == node.name)
+            total = node.cpu_total
+        else:  # memory
+            used = sum(vm.memory for vm in cluster.vms if vm.node == node.name)
+            total = node.memory_total
+            
+        pct = used / total if total else 0
         loads.append(pct)
     if not loads:
         return 0.0
@@ -166,6 +173,23 @@ def solve(
     forbidden_placements: list[dict[str, str]] | None = None
 ) -> Solution:
     """Solve VM placement using CP-SAT."""
+    # ── Early Validation ──
+    try:
+        validate_and_merge_constraints(cluster)
+    except RuleConflictError as e:
+        return Solution(
+            feasible=False,
+            placements={},
+            migrations=[],
+            stats=SolverStats(
+                status=f"RULE_CONFLICT: {str(e)}",
+                objective=0,
+                load_gap=0.0,
+                migration_count=0,
+                wall_time_ms=0,
+            )
+        )
+
     model = cp_model.CpModel()
 
     nodes = cluster.nodes
@@ -286,39 +310,49 @@ def solve(
 
     # ── Objective ──
     # Load per node: we normalize to a common denominator so all loads
-    # are comparable integers. For each node j:
-    #   load_j = used_mb * LOAD_SCALE * (LCM / cap_mb) / LCM
-    # Simpler approach: compute used_j * LOAD_SCALE / cap_j using
-    # AddDivisionEquality which floors the result.
+    # are comparable integers.
+    method = bal.method
     load_vars = []
-    total_vm_mem_mb = sum(v.memory // _MB for v in vms)
+    
+    if method == "cpu":
+        total_vm_resource = sum(v.cpu for v in vms)
+        # Use a large upper bound for load_j to allow overcommit (e.g. 500% = 5 * LOAD_SCALE)
+        max_load_val = 5 * _LOAD_SCALE 
+    else:
+        total_vm_resource = sum(v.memory // _MB for v in vms)
+        max_load_val = _LOAD_SCALE
+
     for j, node in enumerate(nodes):
         if node.maintenance:
             continue
-        mem_cap_mb = node.memory_total // _MB
-        if mem_cap_mb == 0:
+            
+        if method == "cpu":
+            cap_val = node.cpu_total
+            used = sum(vms[i].cpu * x[i][j] for i in range(len(vms)))
+        else:
+            cap_val = node.memory_total // _MB
+            used = sum((vms[i].memory // _MB) * x[i][j] for i in range(len(vms)))
+
+        if cap_val == 0:
             continue
+
         used_scaled = model.new_int_var(
-            0, total_vm_mem_mb * _LOAD_SCALE,
+            0, total_vm_resource * _LOAD_SCALE,
             f"used_scaled_{node.name}"
-        )
-        used = sum(
-            (vms[i].memory // _MB) * x[i][j]
-            for i in range(len(vms))
         )
         model.add(used_scaled == used * _LOAD_SCALE)
 
-        load_j = model.new_int_var(0, _LOAD_SCALE, f"load_{node.name}")
-        cap_var = model.new_constant(mem_cap_mb)
+        load_j = model.new_int_var(0, max_load_val, f"load_{node.name}")
+        cap_var = model.new_constant(cap_val)
         model.add_division_equality(load_j, used_scaled, cap_var)
         load_vars.append(load_j)
 
     if load_vars:
-        max_load = model.new_int_var(0, _LOAD_SCALE, "max_load")
-        min_load = model.new_int_var(0, _LOAD_SCALE, "min_load")
+        max_load = model.new_int_var(0, max_load_val, "max_load")
+        min_load = model.new_int_var(0, max_load_val, "min_load")
         model.add_max_equality(max_load, load_vars)
         model.add_min_equality(min_load, load_vars)
-        load_gap = model.new_int_var(0, _LOAD_SCALE, "load_gap")
+        load_gap = model.new_int_var(0, max_load_val, "load_gap")
         model.add(load_gap == max_load - min_load)
     else:
         load_gap = model.new_constant(0)
