@@ -1,0 +1,61 @@
+name: "Affinity Group Cycle"
+description: >
+  Two affinity groups (A and B) want to swap nodes. Each group is too large
+   to share a node with the other. A temp move is required. The planner 
+   must move the ENTIRE group A to node-C to break the cycle.
+
+balancing:
+  method: memory
+  balanciness: 5
+  cpu_overcommit: 1.0
+
+nodes:
+  node-A:
+    cpu_total: 16
+    memory_total_gb: 64
+  node-B:
+    cpu_total: 16
+    memory_total_gb: 64
+  node-C:
+    cpu_total: 16
+    memory_total_gb: 64
+
+vms:
+  vm-a1:
+    node: node-A
+    cpu: 2
+    memory_gb: 20
+  vm-a2:
+    node: node-A
+    cpu: 2
+    memory_gb: 20
+  vm-b1:
+    node: node-B
+    cpu: 2
+    memory_gb: 20
+  vm-b2:
+    node: node-B
+    cpu: 2
+    memory_gb: 20
+
+constraints:
+  affinity:
+    - name: group-A
+      vms: [vm-a1, vm-a2]
+    - name: group-B
+      vms: [vm-b1, vm-b2]
+  pin:
+    - vm: vm-a1
+      nodes: [node-B]
+    - vm: vm-b1
+      nodes: [node-A]
+
+expect:
+  feasible: true
+  constraints_satisfied: true
+  path_feasible: true
+  placements:
+    vm-a1: node-B
+    vm-a2: node-B
+    vm-b1: node-A
+    vm-b2: node-A
