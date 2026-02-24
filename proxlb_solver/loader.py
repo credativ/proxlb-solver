@@ -40,6 +40,9 @@ def load_scenario(path: str | Path) -> Cluster:
         w_mem_psi=balancing_data.get("w_mem_psi", 1),
         w_io_usage=balancing_data.get("w_io_usage", 1),
         w_io_psi=balancing_data.get("w_io_psi", 1),
+        w_global_mem=balancing_data.get("w_global_mem", 10),
+        w_global_cpu=balancing_data.get("w_global_cpu", 10),
+        w_global_io=balancing_data.get("w_global_io", 1),
     )
 
     nodes = []

@@ -1,0 +1,38 @@
+name: "Global Smart — PSI Pressure Alleviation"
+description: >
+  Two high-pressure VMs are on Node-B. Moving one to Node-A
+  perfectly balances the cluster contention.
+
+balancing:
+  method: global_smart
+  balanciness: 5
+  w_global_mem: 10
+  w_global_cpu: 10
+  w_global_io: 10
+  w_stickiness: 0
+
+nodes:
+  node-A: {cpu_total: 10, memory_total_gb: 64, cpu_pressure: 0, memory_pressure: 0, io_pressure: 0}
+  node-B: {cpu_total: 10, memory_total_gb: 64, cpu_pressure: 20, memory_pressure: 20, io_pressure: 20}
+
+vms:
+  vm-p1: 
+    node: node-B
+    cpu: 1
+    memory_gb: 4
+    cpu_usage: 1.0
+    cpu_pressure: 10.0
+    memory_pressure: 10.0
+    io_pressure: 10.0
+  vm-p2:
+    node: node-B
+    cpu: 1
+    memory_gb: 4
+    cpu_usage: 1.0
+    cpu_pressure: 10.0
+    memory_pressure: 10.0
+    io_pressure: 10.0
+
+expect:
+  feasible: true
+  spread_improved: true

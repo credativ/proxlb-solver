@@ -26,50 +26,63 @@ _BALANCINESS_PROFILES = {
 }
 
 
+def _initial_load_gap_single(cluster: Cluster, method: str) -> float:
+    """Helper to calculate initial gap for a specific smart or base method."""
+    bal = cluster.balancing
+    usage_loads = []
+    psi_loads = []
+    
+    for node in cluster.nodes:
+        if node.maintenance: continue
+        if method == "cpu_smart" or method == "cpu":
+            u_used = sum(vm.cpu_usage for vm in cluster.vms if vm.node == node.name)
+            u_total = node.cpu_total
+            p_used = sum(vm.cpu_pressure for vm in cluster.vms if vm.node == node.name)
+            w_u, w_p = bal.w_cpu_usage, bal.w_cpu_psi
+        elif method == "memory_smart" or method == "memory":
+            u_used = sum(vm.memory for vm in cluster.vms if vm.node == node.name)
+            u_total = node.memory_total
+            p_used = sum(vm.memory_pressure for vm in cluster.vms if vm.node == node.name)
+            w_u, w_p = bal.w_mem_usage, bal.w_mem_psi
+        elif method == "io_smart" or method == "io_psi":
+            u_used = sum(sum(vm.disks.values()) for vm in cluster.vms if vm.node == node.name)
+            u_total = sum(node.storage_free.values()) or 1
+            p_used = sum(vm.io_pressure for vm in cluster.vms if vm.node == node.name)
+            w_u, w_p = bal.w_io_usage, bal.w_io_psi
+        else: return 0.0
+        
+        usage_loads.append(u_used / u_total if u_total else 0)
+        psi_loads.append(p_used / 100.0)
+        
+    if not usage_loads: return 0.0
+    u_gap = max(usage_loads) - min(usage_loads)
+    p_gap = max(psi_loads) - min(psi_loads)
+    
+    if method.endswith("_smart"):
+        total_w = w_u + w_p
+        return (w_u * u_gap + w_p * p_gap) / total_w if total_w else u_gap
+    return u_gap if method != "cpu_psi" and not method.endswith("_psi") else p_gap
+
+
 def _initial_load_gap(cluster: Cluster) -> float:
     """Compute the initial load gap using the sum of VM footprints."""
     method = cluster.balancing.method
     bal = cluster.balancing
     
-    # For smart modes, we need a composite gap.
-    if method in ["cpu_smart", "memory_smart", "io_smart"]:
-        usage_loads = []
-        psi_loads = []
-        
-        for node in cluster.nodes:
-            if node.maintenance: continue
-            
-            if method == "cpu_smart":
-                u_used = sum(vm.cpu_usage for vm in cluster.vms if vm.node == node.name)
-                u_total = node.cpu_total
-                p_used = sum(vm.cpu_pressure for vm in cluster.vms if vm.node == node.name)
-                w_u, w_p = bal.w_cpu_usage, bal.w_cpu_psi
-            elif method == "memory_smart":
-                u_used = sum(vm.memory for vm in cluster.vms if vm.node == node.name)
-                u_total = node.memory_total
-                p_used = sum(vm.memory_pressure for vm in cluster.vms if vm.node == node.name)
-                w_u, w_p = bal.w_mem_usage, bal.w_mem_psi
-            else: # io_smart
-                u_used = sum(sum(vm.disks.values()) for vm in cluster.vms if vm.node == node.name)
-                u_total = sum(node.storage_free.values()) or 1
-                p_used = sum(vm.io_pressure for vm in cluster.vms if vm.node == node.name)
-                w_u, w_p = bal.w_io_usage, bal.w_io_psi
-                
-            usage_loads.append(u_used / u_total if u_total else 0)
-            psi_loads.append(p_used / 100.0)
-            
-        if not usage_loads: return 0.0
-        usage_gap = max(usage_loads) - min(usage_loads)
-        psi_gap = max(psi_loads) - min(psi_loads)
-        
-        total_w = w_u + w_p
-        return (w_u * usage_gap + w_p * psi_gap) / total_w if total_w else usage_gap
+    if method == "global_smart":
+        m_gap = _initial_load_gap_single(cluster, "memory_smart")
+        c_gap = _initial_load_gap_single(cluster, "cpu_smart")
+        i_gap = _initial_load_gap_single(cluster, "io_smart")
+        total_w = bal.w_global_mem + bal.w_global_cpu + bal.w_global_io
+        return (bal.w_global_mem * m_gap + bal.w_global_cpu * c_gap + bal.w_global_io * i_gap) / total_w if total_w else m_gap
 
+    if method in ["cpu_smart", "memory_smart", "io_smart"]:
+        return _initial_load_gap_single(cluster, method)
+
+    # Legacy base methods
     loads = []
     for node in cluster.nodes:
-        if node.maintenance:
-            continue
-        
+        if node.maintenance: continue
         if method == "cpu":
             used = sum(vm.cpu_usage for vm in cluster.vms if vm.node == node.name)
             total = node.cpu_total
@@ -82,175 +95,98 @@ def _initial_load_gap(cluster: Cluster) -> float:
         elif method == "io_psi":
             used = sum(vm.io_pressure for vm in cluster.vms if vm.node == node.name)
             total = 100.0
-        else:  # memory
+        else: # memory
             used = sum(vm.memory for vm in cluster.vms if vm.node == node.name)
             total = node.memory_total
-            
         pct = used / total if total else 0
         loads.append(pct)
-    if not loads:
-        return 0.0
-    return max(loads) - min(loads)
+    return max(loads) - min(loads) if loads else 0.0
 
 
-def _resolve_balancing(
-    bal: Balancing, current_gap: float
-) -> tuple[int, int]:
-    """Resolve effective (w_balance, w_stickiness) from balanciness."""
+def _resolve_balancing(bal: Balancing, current_gap: float) -> tuple[int, int]:
     level = max(1, min(5, bal.balanciness))
     prof_wb, prof_ws, threshold = _BALANCINESS_PROFILES[level]
-
     w_b = bal.w_balance if bal.w_balance is not None else prof_wb
     w_s = bal.w_stickiness if bal.w_stickiness is not None else prof_ws
-
-    if current_gap < threshold:
-        w_b = 0
-
+    if current_gap < threshold: w_b = 0
     return w_b, w_s
 
 
-def _find_blocking_vms(
-    cluster: Cluster, time_limit_s: float
-) -> list[str]:
-    """Identify VMs that prevent evacuation of the target node."""
+def _find_blocking_vms(cluster: Cluster, time_limit_s: float) -> list[str]:
     evac_node = cluster.evacuate_node
-    if not evac_node:
-        return []
-
-    nodes = cluster.nodes
-    vms = cluster.vms
-    bal = cluster.balancing
-    cons = cluster.constraints
-
+    if not evac_node: return []
+    nodes, vms, bal, cons = cluster.nodes, cluster.vms, cluster.balancing, cluster.constraints
     node_idx = {n.name: i for i, n in enumerate(nodes)}
     vms_on_node = [v for v in vms if v.node == evac_node]
-    if not vms_on_node:
-        return []
-
-    blockers: list[str] = []
-
+    if not vms_on_node: return []
+    blockers = []
     for test_vm in vms_on_node:
         model = cp_model.CpModel()
-        y = []
-        for j, node in enumerate(nodes):
-            y.append(model.new_bool_var(f"y_{test_vm.name}_{node.name}"))
-
+        y = [model.new_bool_var(f"y_{test_vm.name}_{n.name}") for n in nodes]
         model.add(sum(y) == 1)
-        ej = node_idx[evac_node]
-        model.add(y[ej] == 0)
-
+        model.add(y[node_idx[evac_node]] == 0)
         for j, node in enumerate(nodes):
-            if node.maintenance:
-                model.add(y[j] == 0)
-
+            if node.maintenance: model.add(y[j] == 0)
         for rule in cons.pin:
             if rule["vm"] == test_vm.name:
                 allowed = {node_idx[n] for n in rule["nodes"] if n in node_idx}
                 for j in range(len(nodes)):
-                    if j not in allowed:
-                        model.add(y[j] == 0)
-
+                    if j not in allowed: model.add(y[j] == 0)
         for j, node in enumerate(nodes):
-            if j == ej: continue
+            if j == node_idx[evac_node]: continue
             other_load = sum(v.memory for v in vms if v.node == node.name and v.name != test_vm.name)
             avail_mb = (node.memory_total - other_load) // _MB
-            if test_vm.memory // _MB > avail_mb:
-                model.add(y[j] == 0)
-
+            if test_vm.memory // _MB > avail_mb: model.add(y[j] == 0)
         overcommit_1000 = int(bal.cpu_overcommit * 1000)
         for j, node in enumerate(nodes):
-            if j == ej: continue
+            if j == node_idx[evac_node]: continue
             other_cpu = sum(v.cpu for v in vms if v.node == node.name and v.name != test_vm.name)
             avail_cpu_1000 = node.cpu_total * overcommit_1000 - other_cpu * 1000
-            if test_vm.cpu * 1000 > avail_cpu_1000:
-                model.add(y[j] == 0)
-
+            if test_vm.cpu * 1000 > avail_cpu_1000: model.add(y[j] == 0)
         solver = cp_model.CpSolver()
         solver.parameters.max_time_in_seconds = min(time_limit_s, 5.0)
-        status = solver.solve(model)
-        if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
-            blockers.append(test_vm.name)
-
-    if not blockers:
-        blockers = [v.name for v in vms_on_node]
-
-    return blockers
+        if solver.solve(model) not in (cp_model.OPTIMAL, cp_model.FEASIBLE): blockers.append(test_vm.name)
+    return blockers or [v.name for v in vms_on_node]
 
 
-def solve(
-    cluster: Cluster,
-    time_limit_s: float = 30.0,
-    forbidden_placements: list[dict[str, str]] | None = None
-) -> Solution:
-    """Solve VM placement using CP-SAT."""
-    try:
-        validate_and_merge_constraints(cluster)
-    except RuleConflictError as e:
-        return Solution(
-            feasible=False, placements={}, migrations=[],
-            stats=SolverStats(status=f"RULE_CONFLICT: {str(e)}", objective=0, load_gap=0.0, migration_count=0, wall_time_ms=0)
-        )
-
+def solve(cluster: Cluster, time_limit_s: float = 30.0, forbidden_placements: list[dict[str, str]] | None = None) -> Solution:
+    try: validate_and_merge_constraints(cluster)
+    except RuleConflictError as e: return Solution(False, {}, [], SolverStats(f"RULE_CONFLICT: {str(e)}", 0, 0.0, 0, 0))
     model = cp_model.CpModel()
     nodes, vms, bal, cons = cluster.nodes, cluster.vms, cluster.balancing, cluster.constraints
-    current_gap = _initial_load_gap(cluster)
-    eff_w_balance, eff_w_stickiness = _resolve_balancing(bal, current_gap)
     node_idx = {n.name: i for i, n in enumerate(nodes)}
     vm_idx = {v.name: i for i, v in enumerate(vms)}
-
-    x = []
-    for i, vm in enumerate(vms):
-        row = [model.new_bool_var(f"x_{vm.name}_{node.name}") for node in nodes]
-        x.append(row)
-
+    x = [[model.new_bool_var(f"x_{v.name}_{n.name}") for n in nodes] for v in vms]
     if forbidden_placements:
         for forbidden in forbidden_placements:
             literals = [x[vm_idx[v]][node_idx[n]] for v, n in forbidden.items() if v in vm_idx and n in node_idx]
             if literals: model.add(sum(literals) <= len(literals) - 1)
-
     for i in range(len(vms)): model.add(sum(x[i][j] for j in range(len(nodes))) == 1)
-
     for j, node in enumerate(nodes):
         if node.maintenance:
             for i in range(len(vms)): model.add(x[i][j] == 0)
-
     if cluster.evacuate_node:
         evj = node_idx.get(cluster.evacuate_node)
         if evj is not None:
             for i in range(len(vms)): model.add(x[i][evj] == 0)
-
-    ignored_vms = set(cons.ignore)
     for i, vm in enumerate(vms):
-        if vm.name in ignored_vms: model.add(x[i][node_idx[vm.node]] == 1)
-
-    # Hard Constraints: RAM, CPU, Storage
+        if vm.name in cons.ignore: model.add(x[i][node_idx[vm.node]] == 1)
     for j, node in enumerate(nodes):
-        usable_mb = (node.memory_total - node.memory_reserve) // _MB
-        model.add(sum((vms[i].memory // _MB) * x[i][j] for i in range(len(vms))) <= usable_mb)
-
-    overcommit_1000 = int(bal.cpu_overcommit * 1000)
-    for j, node in enumerate(nodes):
-        usable_cores = max(0, node.cpu_total - node.cpu_reserve)
-        model.add(sum(vms[i].cpu * 1000 * x[i][j] for i in range(len(vms))) <= usable_cores * overcommit_1000)
-
+        model.add(sum((vms[i].memory // _MB) * x[i][j] for i in range(len(vms))) <= (node.memory_total - node.memory_reserve) // _MB)
+        model.add(sum(vms[i].cpu * 1000 * x[i][j] for i in range(len(vms))) <= max(0, node.cpu_total - node.cpu_reserve) * int(bal.cpu_overcommit * 1000))
     all_storages = {s for v in vms for s in v.disks.keys()}
-    for storage_name in all_storages:
+    for sn in all_storages:
         for j, node in enumerate(nodes):
-            usable_mb = max(0, (node.storage_free.get(storage_name, 0) - node.storage_reserve.get(storage_name, 0)) // _MB)
-            model.add(sum((vms[i].disks.get(storage_name, 0) // _MB) * x[i][j] for i in range(len(vms))) <= usable_mb)
-
-    # Affinity / Anti-Affinity
+            model.add(sum((vms[i].disks.get(sn, 0) // _MB) * x[i][j] for i in range(len(vms))) <= max(0, (node.storage_free.get(sn, 0) - node.storage_reserve.get(sn, 0)) // _MB))
     for rule in cons.anti_affinity:
-        aa_vms_indices = [vm_idx[name] for name in rule["vms"] if name in vm_idx]
-        if len(aa_vms_indices) < 2: continue
-        for j in range(len(nodes)): model.add(sum(x[i][j] for i in aa_vms_indices) <= 1)
-
+        indices = [vm_idx[n] for n in rule["vms"] if n in vm_idx]
+        if len(indices) >= 2:
+            for j in range(len(nodes)): model.add(sum(x[i][j] for i in indices) <= 1)
     for rule in cons.affinity:
-        aff_vms = [vm_idx[name] for name in rule["vms"] if name in vm_idx]
-        if len(aff_vms) < 2: continue
-        for other in aff_vms[1:]:
-            for j in range(len(nodes)): model.add(x[aff_vms[0]][j] == x[other][j])
-
+        indices = [vm_idx[n] for n in rule["vms"] if n in vm_idx]
+        if len(indices) >= 2:
+            for other in indices[1:]:
+                for j in range(len(nodes)): model.add(x[indices[0]][j] == x[other][j])
     for rule in cons.pin:
         vi = vm_idx.get(rule["vm"])
         if vi is not None:
@@ -261,154 +197,107 @@ def solve(
     # ── Objective ──
     method = bal.method
     max_load_val = _LOAD_SCALE * 5
-    load_vars = []
     
-    if method in ["cpu_smart", "memory_smart", "io_smart"]:
-        u_load_vars, p_load_vars = [], []
-        if method == "cpu_smart":
-            w_u, w_p = bal.w_cpu_usage, bal.w_cpu_psi
-        elif method == "memory_smart":
-            w_u, w_p = bal.w_mem_usage, bal.w_mem_psi
-        else:
-            w_u, w_p = bal.w_io_usage, bal.w_io_psi
-        
+    def add_smart_gap(m_type):
+        u_vars, p_vars = [], []
         for j, node in enumerate(nodes):
             if node.maintenance: continue
-            
-            if method == "cpu_smart":
-                cap_u = max(1, node.cpu_total - node.cpu_reserve)
-                used_u = sum(int(vms[i].cpu_usage * _LOAD_SCALE) * x[i][j] for i in range(len(vms)))
-            elif method == "memory_smart":
-                cap_u = max(1, (node.memory_total - node.memory_reserve) // _MB)
-                used_u = sum((vms[i].memory // _MB) * _LOAD_SCALE * x[i][j] for i in range(len(vms)))
-            else: # io_smart
-                cap_u = max(1, sum(node.storage_free.values()) // _MB)
-                used_u = sum((sum(vms[i].disks.values()) // _MB) * _LOAD_SCALE * x[i][j] for i in range(len(vms)))
-            
-            u_load_j = model.new_int_var(0, max_load_val, f"u_load_{node.name}")
-            model.add_division_equality(u_load_j, used_u, model.new_constant(cap_u))
-            u_load_vars.append(u_load_j)
+            if m_type == "cpu":
+                cap, used = max(1, node.cpu_total - node.cpu_reserve), sum(int(vms[i].cpu_usage * _LOAD_SCALE) * x[i][j] for i in range(len(vms)))
+            elif m_type == "memory":
+                cap, used = max(1, (node.memory_total - node.memory_reserve) // _MB), sum((vms[i].memory // _MB) * _LOAD_SCALE * x[i][j] for i in range(len(vms)))
+            else: # io
+                cap, used = max(1, sum(node.storage_free.values()) // _MB), sum((sum(vms[i].disks.values()) // _MB) * _LOAD_SCALE * x[i][j] for i in range(len(vms)))
+            uv = model.new_int_var(0, max_load_val, f"u_{m_type}_{node.name}")
+            model.add_division_equality(uv, used, model.new_constant(cap))
+            u_vars.append(uv)
+            ps = sum(int((vms[i].cpu_pressure if m_type == "cpu" else vms[i].memory_pressure if m_type == "memory" else vms[i].io_pressure) * _LOAD_SCALE) * x[i][j] for i in range(len(vms)))
+            pv = model.new_int_var(0, _LOAD_SCALE, f"p_{m_type}_{node.name}")
+            model.add_division_equality(pv, ps, model.new_constant(100))
+            p_vars.append(pv)
+        ug = model.new_int_var(0, max_load_val, f"ug_{m_type}")
+        if u_vars:
+            mxu, mnu = model.new_int_var(0, max_load_val, f"mxu_{m_type}"), model.new_int_var(0, max_load_val, f"mnu_{m_type}")
+            model.add_max_equality(mxu, u_vars), model.add_min_equality(mnu, u_vars), model.add(ug == mxu - mnu)
+        else: model.add(ug == 0)
+        pg = model.new_int_var(0, _LOAD_SCALE, f"pg_{m_type}")
+        if p_vars:
+            mxp, mnp = model.new_int_var(0, _LOAD_SCALE, f"mxp_{m_type}"), model.new_int_var(0, _LOAD_SCALE, f"mnp_{m_type}")
+            model.add_max_equality(mxp, p_vars), model.add_min_equality(mnp, p_vars), model.add(pg == mxp - mnp)
+        else: model.add(pg == 0)
+        return ug, pg
 
-            # PSI selection
-            if method == "cpu_smart":
-                p_sum = sum(int(vms[i].cpu_pressure * _LOAD_SCALE) * x[i][j] for i in range(len(vms)))
-            elif method == "memory_smart":
-                p_sum = sum(int(vms[i].memory_pressure * _LOAD_SCALE) * x[i][j] for i in range(len(vms)))
-            else:
-                p_sum = sum(int(vms[i].io_pressure * _LOAD_SCALE) * x[i][j] for i in range(len(vms)))
-
-            p_load_j = model.new_int_var(0, _LOAD_SCALE, f"p_load_{node.name}")
-            model.add_division_equality(p_load_j, p_sum, model.new_constant(100))
-            p_load_vars.append(p_load_j)
-
-        usage_gap = model.new_int_var(0, max_load_val, "usage_gap")
-        if u_load_vars:
-            max_u, min_u = model.new_int_var(0, max_load_val, "max_u"), model.new_int_var(0, max_load_val, "min_u")
-            model.add_max_equality(max_u, u_load_vars), model.add_min_equality(min_u, u_load_vars)
-            model.add(usage_gap == max_u - min_u)
-        else: model.add(usage_gap == 0)
-
-        psi_gap = model.new_int_var(0, _LOAD_SCALE, "psi_gap")
-        if p_load_vars:
-            max_p, min_p = model.new_int_var(0, _LOAD_SCALE, "max_p"), model.new_int_var(0, _LOAD_SCALE, "min_p")
-            model.add_max_equality(max_p, p_load_vars), model.add_min_equality(min_p, p_load_vars)
-            model.add(psi_gap == max_p - min_p)
-        else: model.add(psi_gap == 0)
-            
-        load_gap = model.new_int_var(0, 10 * max_load_val, "load_gap")
-        model.add(load_gap == w_u * usage_gap + w_p * psi_gap)
-
+    if method == "global_smart":
+        ug_m, pg_m = add_smart_gap("memory")
+        ug_c, pg_c = add_smart_gap("cpu")
+        ug_i, pg_i = add_smart_gap("io")
+        load_gap = model.new_int_var(0, 50 * max_load_val, "global_gap")
+        model.add(load_gap == bal.w_global_mem * (bal.w_mem_usage * ug_m + bal.w_mem_psi * pg_m) + 
+                          bal.w_global_cpu * (bal.w_cpu_usage * ug_c + bal.w_cpu_psi * pg_c) + 
+                          bal.w_global_io * (bal.w_io_usage * ug_i + bal.w_io_psi * pg_i))
+    elif method in ["cpu_smart", "memory_smart", "io_smart"]:
+        ug, pg = add_smart_gap(method.split("_")[0])
+        w_u, w_p = (bal.w_cpu_usage, bal.w_cpu_psi) if method == "cpu_smart" else (bal.w_mem_usage, bal.w_mem_psi) if method == "memory_smart" else (bal.w_io_usage, bal.w_io_psi)
+        load_gap = model.new_int_var(0, 10 * max_load_val, "smart_gap")
+        model.add(load_gap == w_u * ug + w_p * pg)
     else:
+        lvars = []
         for j, node in enumerate(nodes):
             if node.maintenance: continue
-            if method == "cpu":
-                cap = max(1, node.cpu_total - node.cpu_reserve)
-                used = sum(int(vms[i].cpu_usage * _LOAD_SCALE) * x[i][j] for i in range(len(vms)))
+            if method == "cpu": cap, used = max(1, node.cpu_total - node.cpu_reserve), sum(int(vms[i].cpu_usage * _LOAD_SCALE) * x[i][j] for i in range(len(vms)))
             elif method in ["cpu_psi", "memory_psi", "io_psi"]:
-                cap = 100
-                if method == "cpu_psi": p_vals = [v.cpu_pressure for v in vms]
-                elif method == "memory_psi": p_vals = [v.memory_pressure for v in vms]
-                else: p_vals = [v.io_pressure for v in vms]
-                used = sum(int(p_vals[i] * _LOAD_SCALE) * x[i][j] for i in range(len(vms)))
-            else: # memory
-                cap = max(1, (node.memory_total - node.memory_reserve) // _MB)
-                used = sum((vms[i].memory // _MB) * _LOAD_SCALE * x[i][j] for i in range(len(vms)))
-            
-            lv = model.new_int_var(0, max_load_val, f"load_{node.name}")
-            model.add_division_equality(lv, used, model.new_constant(cap))
-            load_vars.append(lv)
-
-        load_gap = model.new_int_var(0, max_load_val, "load_gap")
-        if load_vars:
+                cap, used = 100, sum(int((vms[i].cpu_pressure if method == "cpu_psi" else vms[i].memory_pressure if method == "memory_psi" else vms[i].io_pressure) * _LOAD_SCALE) * x[i][j] for i in range(len(vms)))
+            else: cap, used = max(1, (node.memory_total - node.memory_reserve) // _MB), sum((vms[i].memory // _MB) * _LOAD_SCALE * x[i][j] for i in range(len(vms)))
+            lv = model.new_int_var(0, max_load_val, f"l_{node.name}")
+            model.add_division_equality(lv, used, model.new_constant(cap)), lvars.append(lv)
+        load_gap = model.new_int_var(0, max_load_val, "gap")
+        if lvars:
             mx, mn = model.new_int_var(0, max_load_val, "mx"), model.new_int_var(0, max_load_val, "mn")
-            model.add_max_equality(mx, load_vars), model.add_min_equality(mn, load_vars)
-            model.add(load_gap == mx - mn)
+            model.add_max_equality(mx, lvars), model.add_min_equality(mn, lvars), model.add(load_gap == mx - mn)
         else: model.add(load_gap == 0)
 
     mig_bools = []
     for i, vm in enumerate(vms):
-        if vm.name not in ignored_vms:
+        if vm.name not in set(cons.ignore):
             mb = model.new_bool_var(f"mb_{vm.name}")
-            model.add(mb == 1 - x[i][node_idx[vm.node]])
-            mig_bools.append(mb)
-
-    migration_count = model.new_int_var(0, len(vms), "migration_count")
+            model.add(mb == 1 - x[i][node_idx[vm.node]]), mig_bools.append(mb)
+    migration_count = model.new_int_var(0, len(vms), "m_cnt")
     if mig_bools: model.add(migration_count == sum(mig_bools))
     else: model.add(migration_count == 0)
 
-    model.minimize(eff_w_balance * load_gap + eff_w_stickiness * migration_count)
-
+    current_gap = _initial_load_gap(cluster)
+    eff_wb, eff_ws = _resolve_balancing(bal, current_gap)
+    model.minimize(eff_wb * load_gap + eff_ws * migration_count)
     solver = cp_model.CpSolver()
     solver.parameters.max_time_in_seconds = time_limit_s
     t0 = time.monotonic()
     status = solver.solve(model)
-    wall_time_ms = (time.monotonic() - t0) * 1000
-
+    wall_ms = (time.monotonic() - t0) * 1000
     if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
-        blocking = _find_blocking_vms(cluster, time_limit_s) if cluster.evacuate_node else []
-        return Solution(False, {}, [], SolverStats(solver.status_name(status), 0, 0.0, 0, wall_time_ms), blocking)
-
+        return Solution(False, {}, [], SolverStats(solver.status_name(status), 0, 0.0, 0, wall_ms), _find_blocking_vms(cluster, time_limit_s) if cluster.evacuate_node else [])
     placements = {v.name: nodes[j].name for i, v in enumerate(vms) for j in range(len(nodes)) if solver.value(x[i][j])}
     migrations = [Migration(v.name, v.node, placements[v.name]) for v in vms if placements[v.name] != v.node]
+    return Solution(True, placements, migrations, SolverStats(solver.status_name(status), solver.objective_value, solver.value(load_gap) / _LOAD_SCALE, len(migrations), wall_ms))
 
-    return Solution(True, placements, migrations, SolverStats(solver.status_name(status), solver.objective_value, solver.value(load_gap) / _LOAD_SCALE if load_vars or method.endswith("smart") else 0.0, len(migrations), wall_time_ms))
 
-
-def solve_reachable(
-    cluster: Cluster,
-    total_time_limit_s: float = 60.0,
-    max_retries: int = 10,
-    quiet: bool = True,
-) -> tuple[Solution, MigrationPlan]:
-    """Solve VM placement and ensure the solution is reachable."""
-    forbidden = []
-    last_solution = None
-    last_plan = None
-    start_time = time.monotonic()
-
+def solve_reachable(cluster: Cluster, total_time_limit_s: float = 60.0, max_retries: int = 10, quiet: bool = True) -> tuple[Solution, MigrationPlan]:
+    forbidden, last_sol, last_plan, start = [], None, None, time.monotonic()
     for attempt in range(max_retries + 1):
-        elapsed = time.monotonic() - start_time
-        remaining = total_time_limit_s - elapsed
-        if remaining <= 0: break
-
-        solution = solve(cluster, time_limit_s=max(1.0, remaining), forbidden_placements=forbidden)
-        if not solution.feasible:
-            if last_solution:
+        rem = total_time_limit_s - (time.monotonic() - start)
+        if rem <= 0: break
+        sol = solve(cluster, time_limit_s=max(1.0, rem), forbidden_placements=forbidden)
+        if not sol.feasible:
+            if last_sol:
                 import dataclasses
-                return dataclasses.replace(last_solution, path_feasible=False), last_plan
-            return solution, plan_migrations(cluster, solution)
-
-        plan = plan_migrations(cluster, solution)
-        last_solution, last_plan = solution, plan
-        if plan.path_feasible: return solution, plan
+                return dataclasses.replace(last_sol, path_feasible=False), last_plan
+            return sol, plan_migrations(cluster, sol)
+        plan = plan_migrations(cluster, sol)
+        last_sol, last_plan = sol, plan
+        if plan.path_feasible: return sol, plan
         if not plan.unbreakable_cycle: break
-
-        cycle_forbidden = {vm: solution.placements[vm] for vm in plan.unbreakable_cycle if vm in solution.placements}
-        if not cycle_forbidden: break
-        forbidden.append(cycle_forbidden)
+        forbidden.append({vm: sol.placements[vm] for vm in plan.unbreakable_cycle if vm in sol.placements})
         if not quiet: print(f"  [solve_reachable] Attempt {attempt+1}: Cycle {plan.unbreakable_cycle}. Retrying...")
-
-    if last_solution:
+    if last_sol:
         import dataclasses
-        return dataclasses.replace(last_solution, path_feasible=False), last_plan
-    return solution, plan_migrations(cluster, solution)
+        return dataclasses.replace(last_sol, path_feasible=False), last_plan
+    return sol, plan_migrations(cluster, sol)

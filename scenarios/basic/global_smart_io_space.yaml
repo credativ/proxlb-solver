@@ -1,0 +1,30 @@
+name: "Global Smart — IO Space vs CPU Usage"
+description: >
+  Node-A is CPU-idle but storage is almost full.
+  Node-B has plenty of storage but CPU is busy.
+  The solver must decide based on global weights.
+
+balancing:
+  method: global_smart
+  balanciness: 5
+  w_global_cpu: 1
+  w_global_io: 10 # Storage is much more important here
+  w_stickiness: 0
+
+nodes:
+  node-A: 
+    cpu_total: 16
+    memory_total_gb: 64
+    storage_free: {local: 10} # Only 10GB free
+  node-B:
+    cpu_total: 16
+    memory_total_gb: 64
+    storage_free: {local: 1000} # 1TB free
+
+vms:
+  vm-disk-user: {node: node-A, cpu: 1, memory_gb: 4, disks: {local: 8}, cpu_usage: 0.1}
+
+expect:
+  feasible: true
+  placements:
+    vm-disk-user: node-B

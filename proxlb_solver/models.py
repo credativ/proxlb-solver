@@ -66,6 +66,9 @@ class Balancing:
     w_mem_psi: int = 1    # weighting factor for PSI in memory_smart mode
     w_io_usage: int = 1   # weighting factor for usage in io_smart mode
     w_io_psi: int = 1     # weighting factor for PSI in io_smart mode
+    w_global_mem: int = 10 # Importance of RAM in global_smart mode
+    w_global_cpu: int = 10 # Importance of CPU in global_smart mode
+    w_global_io: int = 1   # Importance of IO in global_smart mode
 
 
 @dataclass(frozen=True)

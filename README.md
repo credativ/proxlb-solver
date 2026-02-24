@@ -176,6 +176,22 @@ Available methods: `memory`, `cpu`, `cpu_psi`, `memory_psi`, `io_psi`, `cpu_smar
 - [Proxmox VE: Pressure Stall Information](https://pve.proxmox.com/wiki/Performance_Optimization#PSI)
 - [Facebook Engineering: A new way to monitor resource pressure](https://engineering.fb.com/2018/11/20/ml-applications/psi-open-source/)
 
+### Global Smart Balancing (Multi-Resource Optimization)
+
+The `global_smart` method is the most advanced balancing mode. It optimizes RAM, CPU, and IO simultaneously by calculating a composite objective function.
+
+#### Weight Hierarchy
+Optimization is controlled by a three-tiered weight system:
+
+1.  **Global Level (`w_global_*`)**: Determines the relative importance of resource pools.
+    *   Example: `w_global_mem: 10`, `w_global_cpu: 5` — RAM balance is twice as important as CPU balance.
+2.  **Resource Level (`w_*_usage` vs `w_*_psi`)**: Within each resource, determines the balance between raw usage and pressure stalls.
+    *   Example: `w_cpu_usage: 1`, `w_cpu_psi: 10` — Solving CPU stalls is prioritized over smoothing out average load.
+3.  **Solver Level (`balanciness`)**: Determines the overall aggressiveness (Stickiness vs. Balance).
+
+#### How it works
+The solver calculates two "Gaps" (Max minus Min node utilization) for every resource type (one for Usage, one for PSI). It then minimizes the weighted sum of all these gaps. This ensures that a move to improve RAM balance doesn't inadvertently create a CPU bottleneck that is weighted as more critical.
+
 ## Live Simulation
 
 You can test the solver against a real Proxmox cluster without performing any actual migrations. This is done in two steps to ensure compatibility with your existing ProxLB installation.
