@@ -56,7 +56,9 @@ jobs:
         run: pip install -e ".[dev]"
 
       - name: Generate reports
-        run: python -m proxlb_solver.cli --html report/index.html --markdown report/results.md --junit report/results.xml --quiet
+        run: |
+          mkdir -p report
+          python -m proxlb_solver.cli --html report/index.html --markdown report/results.md --junit report/results.xml --quiet
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
