@@ -171,19 +171,54 @@ def write_junit_xml(
 # ── Markdown helpers ──
 
 def _compute_load_gap(cluster: Cluster, placements: dict[str, str]) -> float:
+    method = cluster.balancing.method
     loads = []
     for node in cluster.nodes:
         if node.maintenance:
             continue
-        used = sum(
-            vm.memory for vm in cluster.vms
-            if placements.get(vm.name) == node.name
-        )
-        pct = used / node.memory_total if node.memory_total else 0
+        
+        if method == "cpu":
+            used = sum(
+                vm.cpu_usage for vm in cluster.vms
+                if placements.get(vm.name) == node.name
+            )
+            total = node.cpu_total
+        elif method == "cpu_psi":
+            used = sum(
+                vm.cpu_pressure for vm in cluster.vms
+                if placements.get(vm.name) == node.name
+            )
+            total = 100.0
+        elif method == "memory_psi":
+            used = sum(
+                vm.memory_pressure for vm in cluster.vms
+                if placements.get(vm.name) == node.name
+            )
+            total = 100.0
+        elif method == "io_psi":
+            used = sum(
+                vm.io_pressure for vm in cluster.vms
+                if placements.get(vm.name) == node.name
+            )
+            total = 100.0
+        else:  # memory
+            used = sum(
+                vm.memory for vm in cluster.vms
+                if placements.get(vm.name) == node.name
+            )
+            total = node.memory_total
+            
+        pct = used / total if total else 0
         loads.append(pct)
     if not loads:
         return 0.0
     return max(loads) - min(loads)
+
+
+def _initial_load_gap(cluster: Cluster) -> float:
+    """Compute the initial load gap using the sum of VM footprints."""
+    placements = {vm.name: vm.node for vm in cluster.vms}
+    return _compute_load_gap(cluster, placements)
 
 
 def _check_expectations(
@@ -264,10 +299,41 @@ def _check_expectations(
         for vm_name, target in solution.placements.items():
             node_used[target] += vm_map[vm_name].memory
         for node_name, used in node_used.items():
-            cap = node_map[node_name].memory_total
+            node = node_map[node_name]
+            cap = node.memory_total - node.memory_reserve
             if used > cap:
                 constraint_errors.append(
                     "RAM overflow %s: %d > %d" % (node_name, used, cap)
+                )
+
+        # Verify storage capacity
+        storage_usage = defaultdict(lambda: defaultdict(int))
+        for vm_name, target in solution.placements.items():
+            for sname, sbytes in vm_map[vm_name].disks.items():
+                storage_usage[target][sname] += sbytes
+        
+        for node_name, usages in storage_usage.items():
+            node = node_map[node_name]
+            for sname, sbytes in usages.items():
+                cap = node.storage_free.get(sname, 0) - node.storage_reserve.get(sname, 0)
+                if sbytes > cap:
+                    constraint_errors.append(
+                        "Storage '%s' overflow on %s: %d > %d" 
+                        % (sname, node_name, sbytes, cap)
+                    )
+        
+        # Verify CPU capacity
+        cpu_usage_vcpus = defaultdict(int)
+        for vm_name, target in solution.placements.items():
+            cpu_usage_vcpus[target] += vm_map[vm_name].cpu
+        
+        for node_name, used_vcpus in cpu_usage_vcpus.items():
+            node = node_map[node_name]
+            usable = max(0, node.cpu_total - node.cpu_reserve)
+            limit = int(usable * cluster.balancing.cpu_overcommit)
+            if used_vcpus > limit:
+                constraint_errors.append(
+                    "vCPU overflow %s: %d > %d" % (node_name, used_vcpus, limit)
                 )
 
         passed = len(constraint_errors) == 0

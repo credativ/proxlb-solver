@@ -1,0 +1,27 @@
+name: "CPU Smart Balancing — Composite Metric"
+description: >
+  Tests that both CPU usage and PSI are balanced simultaneously.
+  Node-A is stalling (high PSI), Node-B is busy (high Usage), Node-C is idle.
+  The solver should distribute the heavy-usage VM and the stalling VM 
+  across the cluster to minimize the weighted composite gap.
+
+balancing:
+  method: cpu_smart
+  balanciness: 5
+  w_cpu_usage: 1
+  w_cpu_psi: 1
+
+nodes:
+  node-A: {cpu_total: 10, memory_total_gb: 64, cpu_pressure: 20.0}
+  node-B: {cpu_total: 10, memory_total_gb: 64, cpu_pressure: 0.0}
+  node-C: {cpu_total: 10, memory_total_gb: 64, cpu_pressure: 0.0}
+
+vms:
+  vm-stalling: {node: node-A, cpu: 1, memory_gb: 4, cpu_usage: 1.0, cpu_pressure: 18.0}
+  vm-usage: {node: node-B, cpu: 1, memory_gb: 4, cpu_usage: 8.0, cpu_pressure: 1.0}
+  vm-idle: {node: node-C, cpu: 1, memory_gb: 4, cpu_usage: 0.0, cpu_pressure: 0.0}
+
+expect:
+  feasible: true
+  spread_improved: true
+  max_migrations: 2

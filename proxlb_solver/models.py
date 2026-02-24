@@ -10,6 +10,13 @@ class Node:
     name: str
     cpu_total: int
     memory_total: int  # bytes
+    storage_free: dict[str, int] = field(default_factory=dict)  # name -> free bytes
+    cpu_reserve: int = 0  # cores
+    memory_reserve: int = 0  # bytes
+    storage_reserve: dict[str, int] = field(default_factory=dict)  # name -> bytes
+    cpu_pressure: float = 0.0  # PSI 'some' percentage
+    memory_pressure: float = 0.0
+    io_pressure: float = 0.0
     maintenance: bool = False
 
 
@@ -17,8 +24,13 @@ class Node:
 class VM:
     name: str
     node: str  # current placement
-    cpu: int
+    cpu: int   # configured vCPUs (cores)
     memory: int  # bytes
+    cpu_usage: float = 0.0  # actual load (e.g. 0.5 for 50% of 1 core)
+    cpu_pressure: float = 0.0  # PSI 'some' percentage
+    memory_pressure: float = 0.0
+    io_pressure: float = 0.0
+    disks: dict[str, int] = field(default_factory=dict)  # name -> required bytes
     vm_type: str = "vm"  # "vm" or "ct"
 
 
@@ -48,6 +60,8 @@ class Balancing:
     cpu_overcommit: float = 2.0
     w_balance: int | None = None  # override; derived from balanciness if None
     w_stickiness: int | None = None  # override; derived from balanciness if None
+    w_cpu_usage: int = 1  # weighting factor for usage in cpu_smart mode
+    w_cpu_psi: int = 1    # weighting factor for PSI in cpu_smart mode
 
 
 @dataclass(frozen=True)

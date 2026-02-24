@@ -27,16 +27,46 @@ _BALANCINESS_PROFILES = {
 
 
 def _initial_load_gap(cluster: Cluster) -> float:
-    """Compute the initial load gap for the configured method (memory or cpu)."""
+    """Compute the initial load gap using the sum of VM footprints."""
     method = cluster.balancing.method
+    bal = cluster.balancing
     loads = []
+    
+    # For cpu_smart, we need a composite gap. We calculate both and weight them.
+    if method == "cpu_smart":
+        usage_loads = []
+        psi_loads = []
+        for node in cluster.nodes:
+            if node.maintenance: continue
+            # Usage part
+            u_used = sum(vm.cpu_usage for vm in cluster.vms if vm.node == node.name)
+            u_total = node.cpu_total
+            usage_loads.append(u_used / u_total if u_total else 0)
+            # PSI part
+            p_used = sum(vm.cpu_pressure for vm in cluster.vms if vm.node == node.name)
+            psi_loads.append(p_used / 100.0)
+        if not usage_loads: return 0.0
+        usage_gap = max(usage_loads) - min(usage_loads)
+        psi_gap = max(psi_loads) - min(psi_loads)
+        total_w = bal.w_cpu_usage + bal.w_cpu_psi
+        return (bal.w_cpu_usage * usage_gap + bal.w_cpu_psi * psi_gap) / total_w if total_w else usage_gap
+
     for node in cluster.nodes:
         if node.maintenance:
             continue
         
         if method == "cpu":
-            used = sum(vm.cpu for vm in cluster.vms if vm.node == node.name)
+            used = sum(vm.cpu_usage for vm in cluster.vms if vm.node == node.name)
             total = node.cpu_total
+        elif method == "cpu_psi":
+            used = sum(vm.cpu_pressure for vm in cluster.vms if vm.node == node.name)
+            total = 100.0
+        elif method == "memory_psi":
+            used = sum(vm.memory_pressure for vm in cluster.vms if vm.node == node.name)
+            total = 100.0
+        elif method == "io_psi":
+            used = sum(vm.io_pressure for vm in cluster.vms if vm.node == node.name)
+            total = 100.0
         else:  # memory
             used = sum(vm.memory for vm in cluster.vms if vm.node == node.name)
             total = node.memory_total
@@ -259,25 +289,48 @@ def solve(
 
     # ── Hard Constraint 2: RAM Capacity ──
     for j, node in enumerate(nodes):
-        mem_cap_mb = node.memory_total // _MB
+        # Usable memory = Total - Reserved
+        usable_mb = (node.memory_total - node.memory_reserve) // _MB
         model.add(
             sum(
                 (vms[i].memory // _MB) * x[i][j]
                 for i in range(len(vms))
-            ) <= mem_cap_mb
+            ) <= usable_mb
         )
 
     # ── Hard Constraint 3: CPU Capacity (Overcommitted) ──
     cpu_overcommit = bal.cpu_overcommit
     for j, node in enumerate(nodes):
-        # Scale: multiply both sides by 1000 to avoid floats
+        # Usable cores = (Total - Reserved) * Overcommit
+        usable_cores = max(0, node.cpu_total - node.cpu_reserve)
         overcommit_1000 = int(cpu_overcommit * 1000)
         model.add(
             sum(
                 vms[i].cpu * 1000 * x[i][j]
                 for i in range(len(vms))
-            ) <= node.cpu_total * overcommit_1000
+            ) <= usable_cores * overcommit_1000
         )
+
+    # ── Hard Constraint 10: Named Storage Capacity ──
+    # Collect all unique storage names used by VMs
+    all_storages = set()
+    for vm in vms:
+        all_storages.update(vm.disks.keys())
+    
+    for storage_name in all_storages:
+        for j, node in enumerate(nodes):
+            # Usable storage = Free - Reserved
+            free_mb = node.storage_free.get(storage_name, 0) // _MB
+            reserve_mb = node.storage_reserve.get(storage_name, 0) // _MB
+            usable_mb = max(0, free_mb - reserve_mb)
+            
+            # Sum disks of VMs assigned to this node that use this storage
+            model.add(
+                sum(
+                    (vms[i].disks.get(storage_name, 0) // _MB) * x[i][j]
+                    for i in range(len(vms))
+                ) <= usable_mb
+            )
 
     # ── Hard Constraint 4: Anti-Affinity ──
     for rule in cons.anti_affinity:
@@ -314,48 +367,94 @@ def solve(
     method = bal.method
     load_vars = []
     
-    if method == "cpu":
-        total_vm_resource = sum(v.cpu for v in vms)
-        # Use a large upper bound for load_j to allow overcommit (e.g. 500% = 5 * LOAD_SCALE)
-        max_load_val = 5 * _LOAD_SCALE 
-    else:
-        total_vm_resource = sum(v.memory // _MB for v in vms)
-        max_load_val = _LOAD_SCALE
-
-    for j, node in enumerate(nodes):
-        if node.maintenance:
-            continue
-            
-        if method == "cpu":
-            cap_val = node.cpu_total
-            used = sum(vms[i].cpu * x[i][j] for i in range(len(vms)))
+    # max_load_val: 100% = _LOAD_SCALE. 
+    # For CPU usage/cores we allow overcommit up to 500%.
+    max_load_val = 5 * _LOAD_SCALE 
+    
+    if method == "cpu_smart":
+        usage_gaps = []
+        psi_gaps = []
+        
+        # Calculate Usage Gap
+        usage_load_vars = []
+        for j, node in enumerate(nodes):
+            if node.maintenance: continue
+            cap_val = max(1, node.cpu_total - node.cpu_reserve)
+            used_scaled = sum(int(vms[i].cpu_usage * _LOAD_SCALE) * x[i][j] for i in range(len(vms)))
+            load_j = model.new_int_var(0, max_load_val, f"u_load_{node.name}")
+            model.add_division_equality(load_j, used_scaled, model.new_constant(cap_val))
+            usage_load_vars.append(load_j)
+        
+        usage_gap = model.new_int_var(0, max_load_val, "usage_gap")
+        if usage_load_vars:
+            max_u = model.new_int_var(0, max_load_val, "max_u")
+            min_u = model.new_int_var(0, max_load_val, "min_u")
+            model.add_max_equality(max_u, usage_load_vars)
+            model.add_min_equality(min_u, usage_load_vars)
+            model.add(usage_gap == max_u - min_u)
         else:
-            cap_val = node.memory_total // _MB
-            used = sum((vms[i].memory // _MB) * x[i][j] for i in range(len(vms)))
+            model.add(usage_gap == 0)
 
-        if cap_val == 0:
-            continue
+        # Calculate PSI Gap
+        psi_load_vars = []
+        for j, node in enumerate(nodes):
+            if node.maintenance: continue
+            cap_val = 100
+            used_scaled = sum(int(vms[i].cpu_pressure * _LOAD_SCALE) * x[i][j] for i in range(len(vms)))
+            load_j = model.new_int_var(0, _LOAD_SCALE, f"p_load_{node.name}")
+            model.add_division_equality(load_j, used_scaled, model.new_constant(cap_val))
+            psi_load_vars.append(load_j)
+            
+        psi_gap = model.new_int_var(0, _LOAD_SCALE, "psi_gap")
+        if psi_load_vars:
+            max_p = model.new_int_var(0, _LOAD_SCALE, "max_p")
+            min_p = model.new_int_var(0, _LOAD_SCALE, "min_p")
+            model.add_max_equality(max_p, psi_load_vars)
+            model.add_min_equality(min_p, psi_load_vars)
+            model.add(psi_gap == max_p - min_p)
+        else:
+            model.add(psi_gap == 0)
+            
+        # Combine Gaps
+        load_gap = model.new_int_var(0, 10 * max_load_val, "combined_gap")
+        model.add(load_gap == bal.w_cpu_usage * usage_gap + bal.w_cpu_psi * psi_gap)
 
-        used_scaled = model.new_int_var(
-            0, total_vm_resource * _LOAD_SCALE,
-            f"used_scaled_{node.name}"
-        )
-        model.add(used_scaled == used * _LOAD_SCALE)
-
-        load_j = model.new_int_var(0, max_load_val, f"load_{node.name}")
-        cap_var = model.new_constant(cap_val)
-        model.add_division_equality(load_j, used_scaled, cap_var)
-        load_vars.append(load_j)
-
-    if load_vars:
-        max_load = model.new_int_var(0, max_load_val, "max_load")
-        min_load = model.new_int_var(0, max_load_val, "min_load")
-        model.add_max_equality(max_load, load_vars)
-        model.add_min_equality(min_load, load_vars)
-        load_gap = model.new_int_var(0, max_load_val, "load_gap")
-        model.add(load_gap == max_load - min_load)
     else:
-        load_gap = model.new_constant(0)
+        # Standard single-metric balancing
+        for j, node in enumerate(nodes):
+            if node.maintenance:
+                continue
+                
+            if method == "cpu":
+                cap_val = max(1, node.cpu_total - node.cpu_reserve)
+                used_scaled = sum(int(vms[i].cpu_usage * _LOAD_SCALE) * x[i][j] for i in range(len(vms)))
+            elif method in ["cpu_psi", "memory_psi", "io_psi"]:
+                cap_val = 100
+                if method == "cpu_psi":
+                    used_scaled = sum(int(vms[i].cpu_pressure * _LOAD_SCALE) * x[i][j] for i in range(len(vms)))
+                elif method == "memory_psi":
+                    used_scaled = sum(int(vms[i].memory_pressure * _LOAD_SCALE) * x[i][j] for i in range(len(vms)))
+                else: # io_psi
+                    used_scaled = sum(int(vms[i].io_pressure * _LOAD_SCALE) * x[i][j] for i in range(len(vms)))
+            else: # memory
+                cap_val = max(1, (node.memory_total - node.memory_reserve) // _MB)
+                used_mb = sum((vms[i].memory // _MB) * x[i][j] for i in range(len(vms)))
+                used_scaled = used_mb * _LOAD_SCALE
+
+            load_j = model.new_int_var(0, max_load_val, f"load_{node.name}")
+            cap_var = model.new_constant(cap_val)
+            model.add_division_equality(load_j, used_scaled, cap_var)
+            load_vars.append(load_j)
+
+        if load_vars:
+            max_load = model.new_int_var(0, max_load_val, "max_load")
+            min_load = model.new_int_var(0, max_load_val, "min_load")
+            model.add_max_equality(max_load, load_vars)
+            model.add_min_equality(min_load, load_vars)
+            load_gap = model.new_int_var(0, max_load_val, "load_gap")
+            model.add(load_gap == max_load - min_load)
+        else:
+            load_gap = model.new_constant(0)
 
     # Migration count: number of VMs not on their original node
     migration_bools = []

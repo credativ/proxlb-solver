@@ -29,6 +29,9 @@ def from_proxlb_data(proxlb_data: Dict[str, Any]) -> Cluster:
             cpu_total=nd.get("cpu_total", 0),
             memory_total=nd.get("memory_total", 0),
             storage_free=storage_free,
+            cpu_pressure=nd.get("cpu_pressure_some_percent", 0.0),
+            memory_pressure=nd.get("memory_pressure_some_percent", 0.0),
+            io_pressure=nd.get("disk_pressure_some_percent", 0.0),
             maintenance=nd.get("maintenance", False)
         ))
 
@@ -46,8 +49,10 @@ def from_proxlb_data(proxlb_data: Dict[str, Any]) -> Cluster:
             cpu=gd.get("cpu_total", 1),
             memory=gd.get("memory_total", 0),
             cpu_usage=gd.get("cpu_used", 0.0),
-            # Skip disks for now to avoid false INFEASIBLE in live simulation
-            disks={}, 
+            cpu_pressure=gd.get("cpu_pressure_some_percent", 0.0),
+            memory_pressure=gd.get("memory_pressure_some_percent", 0.0),
+            io_pressure=gd.get("disk_pressure_some_percent", 0.0),
+            disks={}, # Skip disks for now to avoid false INFEASIBLE in simulation
             vm_type=gd.get("type", "vm")
         ))
 

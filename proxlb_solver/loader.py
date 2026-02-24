@@ -34,24 +34,53 @@ def load_scenario(path: str | Path) -> Cluster:
         cpu_overcommit=balancing_data.get("cpu_overcommit", 2.0),
         w_balance=balancing_data.get("w_balance"),
         w_stickiness=balancing_data.get("w_stickiness"),
+        w_cpu_usage=balancing_data.get("w_cpu_usage", 1),
+        w_cpu_psi=balancing_data.get("w_cpu_psi", 1),
     )
 
     nodes = []
     for name, nd in data.get("nodes", {}).items():
+        storage_free = {
+            sname: _gb_to_bytes(sval)
+            for sname, sval in nd.get("storage_free", {}).items()
+        }
+        
+        reserve_data = nd.get("reserve", {})
+        storage_reserve = {
+            sname: _gb_to_bytes(sval)
+            for sname, sval in reserve_data.get("storage_gb", {}).items()
+        }
+        
         nodes.append(Node(
             name=name,
             cpu_total=nd["cpu_total"],
             memory_total=_gb_to_bytes(nd["memory_total_gb"]),
+            storage_free=storage_free,
+            cpu_reserve=reserve_data.get("cpu", 0),
+            memory_reserve=_gb_to_bytes(reserve_data.get("memory_gb", 0)),
+            storage_reserve=storage_reserve,
+            cpu_pressure=nd.get("cpu_pressure", 0.0),
+            memory_pressure=nd.get("memory_pressure", 0.0),
+            io_pressure=nd.get("io_pressure", 0.0),
             maintenance=nd.get("maintenance", False),
         ))
 
     vms = []
     for name, vd in data.get("vms", {}).items():
+        disks = {
+            sname: _gb_to_bytes(sval)
+            for sname, sval in vd.get("disks", {}).items()
+        }
         vms.append(VM(
             name=name,
             node=vd["node"],
             cpu=vd["cpu"],
             memory=_gb_to_bytes(vd["memory_gb"]),
+            cpu_usage=vd.get("cpu_usage", float(vd["cpu"])),
+            cpu_pressure=vd.get("cpu_pressure", 0.0),
+            memory_pressure=vd.get("memory_pressure", 0.0),
+            io_pressure=vd.get("io_pressure", 0.0),
+            disks=disks,
             vm_type=vd.get("type", "vm"),
         ))
 
@@ -82,6 +111,7 @@ def load_scenario(path: str | Path) -> Cluster:
         max_migrations=ed.get("max_migrations"),
         placements=placements,
         node_empty=ed.get("node_empty"),
+        path_feasible=ed.get("path_feasible"),
     )
 
     evacuate_node = data.get("evacuate_node")
