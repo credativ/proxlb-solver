@@ -1,126 +1,155 @@
 # ProxLB CP-SAT Solver
 
-Der ProxLB Solver ist ein mathematisch exakter Scheduler für Proxmox VE Cluster. Er nutzt Googles **OR-Tools CP-SAT**, um das globale Optimum für die VM-Platzierung zu finden, anstatt sich auf einfache Heuristiken zu verlassen.
+The ProxLB Solver is a mathematically exact scheduler for Proxmox VE clusters. It uses Google's **OR-Tools CP-SAT** to find the provably global optimum for VM placement, moving beyond simple greedy heuristics.
 
-## Der Algorithmus auf einen Blick
+## Algorithmic Overview
 
 ```mermaid
 graph TD
-    A[Eingabe: Cluster Snapshot] --> B{Validator}
-    B -- Konflikt gefunden --> C[Abbruch: RULE_CONFLICT]
-    B -- OK --> D[CP-SAT Modellierung]
+    A[Input: Cluster Snapshot] --> B{Validator}
+    B -- Conflict detected --> C[Status: RULE_CONFLICT]
+    B -- OK --> D[CP-SAT Modeling]
     
-    subgraph Solver [Optimierungsschleife]
-    D --> E[Solver: Finde Optimum]
-    E -- Infeasible --> F[Abbruch: INFEASIBLE]
-    E -- Optimaler Zustand --> G[Planner: Berechne Pfad]
-    G -- Zyklus blockiert? --> H{Reachable?}
-    H -- Nein --> I[Add No-Good Clause]
+    subgraph Solver [Optimization Loop]
+    D --> E[Solver: Find Optimum]
+    E -- Infeasible --> F[Status: INFEASIBLE]
+    E -- Optimal State --> G[Planner: Calculate Path]
+    G -- Blocked cycle? --> H{Reachable?}
+    H -- No --> I[Add No-Good Clause]
     I --> E
-    H -- Ja --> J[Lösung: Optimal & Ausführbar]
+    H -- Yes --> J[Solution: Optimal & Executable]
     end
 ```
 
 ---
 
-## 1. Das mathematische Modell
+## 1. Mathematical Core
 
-Der Solver betrachtet die Platzierung als ein **Integer Linear Programming (ILP)** Problem. 
+The solver treats VM placement as an **Integer Linear Programming (ILP)** problem.
 
-### Entscheidungs-Variablen
-Für jede VM $i$ und jeden Knoten $j$ existiert eine binäre Variable $x_{i,j}$:
-*   $x_{i,j} = 1$: VM $i$ wird auf Knoten $j$ platziert.
-*   $x_{i,j} = 0$: VM $i$ wird nicht auf Knoten $j$ platziert.
+### Decision Variables
+For every VM $i$ and node $j$, a binary variable $x_{i,j}$ is defined:
+*   $x_{i,j} = 1$: VM $i$ is assigned to node $j$.
+*   $x_{i,j} = 0$: VM $i$ is not assigned to node $j$.
 
-Jede VM muss genau einem Knoten zugewiesen werden: $\sum_{j} x_{i,j} = 1$.
+Every VM must be assigned to exactly one node: $\sum_{j} x_{i,j} = 1$.
 
-### Die Zielfunktion (Objective)
-Der Solver minimiert folgende Kostenfunktion:
+### Objective Function
+The solver minimizes a weighted cost function:
 $$Minimize: (w_{balance} \cdot LoadGap) + (w_{stickiness} \cdot MigrationCount) + Penalty_{SoftRules}$$
 
-*   **LoadGap**: Die Differenz zwischen dem am stärksten und am schwächsten ausgelasteten Knoten ($Max - Min$).
-*   **MigrationCount**: Die Anzahl der VMs, deren Ziel-Knoten nicht dem aktuellen Knoten entspricht.
-*   **Penalty**: Ein massiver Malus ($1.000.000$) für jede verletzte weiche Regel.
+*   **LoadGap**: The difference between the most and least utilized node ($Max - Min$).
+*   **MigrationCount**: The number of VMs whose target node differs from their current node.
+*   **Penalty**: A massive malus ($1,000,000$) for every violated soft constraint.
 
 ---
 
-## 2. Ressourcen-Metriken & Modi
+## 2. Resource Metrics & "Smart" Modes
 
-ProxLB unterstützt verschiedene Dimensionen der Optimierung, gesteuert über den Parameter `method`:
+ProxLB supports multiple optimization dimensions via the `method` parameter:
 
-| Methode | Logik | Anwendungsfall |
+| Method | Logic | Use Case |
 | :--- | :--- | :--- |
-| `memory` | RAM Usage (Bytes) | Klassisches RAM-Balancing. |
-| `cpu` | CPU Load (Average) | Durchsatz-Optimierung. |
-| `cpu_psi` | CPU Stall (Wartezeit) | Latenz-Optimierung (PVE 9+). |
-| `cpu_smart` | Usage + PSI (Hybrid) | Beste Balance aus Last und Antwortzeit. |
-| `global_smart` | RAM + CPU + IO | **Holistisches Cluster-Management**. |
+| `memory` | RAM Usage (Bytes) | Classic memory-based balancing. |
+| `cpu` | CPU Load (Average) | Throughput optimization. |
+| `cpu_psi` | CPU Stall (Wait time) | Latency optimization (PVE 9+). |
+| `cpu_smart` | Usage + PSI (Hybrid) | Balance of throughput and responsiveness. |
+| `global_smart` | RAM + CPU + IO | **Holistic cluster-wide optimization**. |
 
-### Das PSI Footprint Modell (CPU, RAM, IO)
-[PSI (Pressure Stall Information)](https://www.kernel.org/doc/html/latest/accounting/psi.html) misst, wie lange Prozesse auf Ressourcen warten. Da PSI eine *intensive* Größe ist, nutzt der Solver ein **additives Fußabdruck-Modell**:
-1. Jede VM hat einen individuellen Druck-Beitrag (z.B. 10% Stall-Zeit).
-2. Der Solver projiziert die Knoten-Last als Summe dieser Beiträge.
-3. VMs mit hohem Druck werden von Knoten wegbewegt, die bereits hohe Stall-Zeiten melden.
-
----
-
-## 3. Das 3-stufige Gewichtungssystem
-
-Die Optimierung wird über drei Ebenen feinjustiert:
-
-1.  **Global-Ebene (`w_global_*`)**: Priorität der Ressourcen-Pools (z.B. "RAM-Balance ist wichtiger als IO-Performance").
-2.  **Ressourcen-Ebene (`w_*_usage` vs `w_*_psi`)**: Verhältnis zwischen statischer Auslastung und dynamischem Druck.
-3.  **VM-Ebene (`priority`)**: 
-    *   **Prio 3 (High)**: Zählt 3x so viel in der Gap-Berechnung.
-    *   **Prio 1 (Low)**: Zählt nur 1x.
-    *   *Resultat*: Wichtige VMs "erzwingen" ihren Platz auf den leersten Knoten.
+### The PSI Footprint Model (CPU, RAM, IO)
+[PSI (Pressure Stall Information)](https://www.kernel.org/doc/html/latest/accounting/psi.html) measures resource contention. Since PSI is an *intensive* metric (it doesn't sum up like RAM), the solver uses an **additive footprint model**:
+1. Each VM has an individual pressure contribution (e.g., 10% stall time).
+2. The solver projects node load as the sum of these contributions.
+3. High-pressure VMs are actively moved away from nodes already reporting stalls.
 
 ---
 
-## 4. Regeln & Constraints
+## 3. Weight Hierarchy
 
-### Harte Constraints (Strict)
-Verletzungen führen zu `INFEASIBLE`.
-*   **Kapazität**: RAM, vCPU (inkl. Overcommit) und benannte Storages (ZFS, LVM).
-*   **Pinning**: VMs an spezifische Hardware binden. **Pinning ist immer hart.**
-*   **Maintenance**: Knoten im Wartungsmodus dürfen keine VMs beherbergen.
-*   **Hard Rules**: Affinity/Anti-Affinity mit `hard: true`.
+Optimization is fine-tuned via three distinct tiers:
 
-### Weiche Constraints (Preferred)
-Werden nur bei Ressourcenmangel verletzt.
-*   **Soft Rules**: Affinity/Anti-Affinity mit `hard: false`.
-*   Der Solver wählt bei Engpässen die Lösung mit den wenigsten Regelverletzungen.
+1.  **Global Level (`w_global_*`)**: Importance of resource pools (e.g., "RAM balance is 10x more important than IO").
+2.  **Resource Level (`w_*_usage` vs `w_*_psi`)**: Weighting raw utilization against dynamic pressure stalls.
+3.  **VM Level (`priority`)**: 
+    *   **Priority 3 (High)**: Contribution counts 3x towards the gap calculation.
+    *   **Priority 1 (Low)**: Contribution counts 1x.
+    *   *Result*: Important VMs "force" their way onto the least loaded nodes.
 
 ---
 
-## 5. Sicherheit: Die Reachability-Garantie
+## 4. Constraints
 
-Ein optimaler Zielzustand ist wertlos, wenn er nicht erreicht werden kann (z.B. weil kein Zwischenspeicher für einen Ring-Tausch vorhanden ist).
+### Hard Constraints (Strict)
+Violations result in `INFEASIBLE`.
+- **Capacity**: RAM, CPU cores (with overcommit), and named Storage pools (ZFS, LVM).
+- **Pinning**: Binding VMs to specific hardware. **Pinning is always hard.**
+- **Maintenance**: Nodes in maintenance mode are forbidden targets.
+- **Hard Rules**: Affinity/Anti-Affinity marked as `hard: true`.
 
-1. Der **Planner** prüft nach jeder Lösung, ob ein Migrationspfad existiert.
-2. Er erkennt Abhängigkeiten (VM-A muss erst weg, bevor VM-B Platz hat).
-3. Er erkennt Zyklen (A -> B -> A) und versucht sie durch **Temp-Moves** auf freie Knoten zu lösen.
-4. Kann ein Zyklus nicht sicher gelöst werden, wird der Zustand als **"No-Good"** markiert und der Solver sucht die nächstbeste, erreichbare Lösung.
+### Soft Constraints (Preferred)
+Violated only if resources are exhausted.
+- **Soft Rules**: Affinity/Anti-Affinity marked as `hard: false`.
+- The solver minimizes the number of soft violations if no perfect solution exists.
 
 ---
 
-## Benutzung & Installation
+## 5. Security: The Reachability Guarantee
 
-### Live Simulation
-Testen Sie den Solver sicher gegen einen echten Cluster:
+An optimal state is worthless if it cannot be executed (e.g., no buffer space for a swap).
+1. The **Planner** verifies every solution for an executable migration path.
+2. It detects dependencies (VM-A must move before VM-B can fit).
+3. It detects cycles (A -> B -> A) and breaks them using **Temp-Moves** to spare nodes.
+4. If a cycle is unbreakable, the state is marked as **"No-Good"**, and the solver searches for the next-best reachable solution.
 
-1. **Snapshot erstellen**:
-   ```bash
-   cd ProxLB/proxlb
-   python3 ../../scripts/export_proxlb_data.py /etc/proxlb.yaml /tmp/dump.json
-   ```
-2. **Simulator starten**:
-   ```bash
-   python3 -m proxlb_solver.simulate /tmp/dump.json
-   ```
+---
 
-### Entwicklung & Tests
-Der Solver wird über YAML-Szenarien gesteuert. Über 90 Tests decken alle oben genannten Logiken ab.
+## Live Simulation
+
+Test the solver safely against your real cluster:
+
+### Step 1: Export Cluster Data
+Run the exporter (located in `scripts/export_proxlb_data.py`) from your ProxLB directory:
+```bash
+cd path/to/ProxLB/proxlb
+python3 /path/to/proxlb-solver/scripts/export_proxlb_data.py /etc/proxlb.yaml /tmp/dump.json
+```
+
+### Step 2: Run Simulator
+```bash
+python3 -m proxlb_solver.simulate /tmp/dump.json
+```
+
+## Features Summary
+
+- **CP-SAT optimization** — Exact solver finding provably optimal placements.
+- **DRS-style balanciness** (1–5) — From conservative to aggressive.
+- **Multi-faceted CPU Strategy** — vCPUs for limits, usage for balancing.
+- **Named Storage Support** — Respects ZFS/LVM pool capacities.
+- **Resource Reservations** — Protect host system stability.
+- **Scenario-driven testing** — 90+ YAML scenarios covering all edge cases.
+
+## Usage & Development
+
+### Installation
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e .
+```
+
+### Running Tests
 ```bash
 make test
+```
+
+## YAML Scenario Format
+Scenarios are located in `scenarios/`. They define nodes, VMs, and expected outcomes.
+```yaml
+nodes:
+  node-A: {cpu_total: 16, memory_total_gb: 64}
+vms:
+  vm-1: {node: node-A, cpu: 4, memory_gb: 16, priority: 3}
+balancing:
+  method: global_smart
+  balanciness: 5
 ```
