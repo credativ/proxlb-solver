@@ -1,0 +1,28 @@
+name: "Soft Constraints — Anti-Affinity Violation"
+description: >
+  Three VMs with mutual anti-affinity, but only two nodes available.
+  If the rule is HARD, it's INFEASIBLE.
+  If the rule is SOFT, the solver should place them anyway and incur a penalty.
+
+balancing:
+  method: memory
+  balanciness: 5
+
+nodes:
+  node-A: {cpu_total: 10, memory_total_gb: 64}
+  node-B: {cpu_total: 10, memory_total_gb: 64}
+
+vms:
+  vm-1: {node: node-A, cpu: 1, memory_gb: 4}
+  vm-2: {node: node-B, cpu: 1, memory_gb: 4}
+  vm-3: {node: node-A, cpu: 1, memory_gb: 4}
+
+constraints:
+  anti_affinity:
+    - name: "Soft-AA"
+      vms: ["vm-1", "vm-2", "vm-3"]
+      hard: false
+
+expect:
+  feasible: true
+  constraints_satisfied: false # Rule will be violated!

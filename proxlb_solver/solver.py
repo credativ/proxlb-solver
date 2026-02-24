@@ -14,15 +14,16 @@ from .validator import validate_and_merge_constraints, RuleConflictError
 _MB = 1024 * 1024
 # Scale load percentages ×10000 for integer precision
 _LOAD_SCALE = 10000
+# Penalty for violating a soft constraint
+_SOFT_PENALTY = 1000000
 
 # VMware DRS-style balanciness profiles
-# (w_balance, w_stickiness, migration_threshold as fraction 0.0–1.0)
 _BALANCINESS_PROFILES = {
-    1: (0, 1, 1.0),       # Conservative: only hard constraints
-    2: (1, 50, 0.25),     # Low: migrate only if >25% gap
-    3: (10, 10, 0.15),    # Moderate (default)
-    4: (50, 5, 0.05),     # High: active rebalancing
-    5: (100, 1, 0.0),     # Aggressive: chase perfect balance
+    1: (0, 1, 1.0),       # Conservative
+    2: (1, 50, 0.25),     # Low
+    3: (10, 10, 0.15),    # Moderate
+    4: (50, 5, 0.05),     # High
+    5: (100, 1, 0.0),     # Aggressive
 }
 
 
@@ -31,11 +32,9 @@ def _initial_load_gap_single(cluster: Cluster, method: str) -> float:
     bal = cluster.balancing
     usage_loads = []
     psi_loads = []
-    
     for node in cluster.nodes:
         if node.maintenance: continue
         if method == "cpu_smart" or method == "cpu":
-            # Priority weights the impact of the load on the gap
             u_used = sum(vm.cpu_usage * vm.priority for vm in cluster.vms if vm.node == node.name)
             u_total = node.cpu_total
             p_used = sum(vm.cpu_pressure * vm.priority for vm in cluster.vms if vm.node == node.name)
@@ -51,14 +50,11 @@ def _initial_load_gap_single(cluster: Cluster, method: str) -> float:
             p_used = sum(vm.io_pressure * vm.priority for vm in cluster.vms if vm.node == node.name)
             w_u, w_p = bal.w_io_usage, bal.w_io_psi
         else: return 0.0
-        
         usage_loads.append(u_used / u_total if u_total else 0)
         psi_loads.append(p_used / 100.0)
-        
     if not usage_loads: return 0.0
     u_gap = max(usage_loads) - min(usage_loads)
     p_gap = max(psi_loads) - min(psi_loads)
-    
     if method.endswith("_smart"):
         total_w = w_u + w_p
         return (w_u * u_gap + w_p * p_gap) / total_w if total_w else u_gap
@@ -69,36 +65,22 @@ def _initial_load_gap(cluster: Cluster) -> float:
     """Compute the initial load gap using the sum of VM footprints."""
     method = cluster.balancing.method
     bal = cluster.balancing
-    
     if method == "global_smart":
         m_gap = _initial_load_gap_single(cluster, "memory_smart")
         c_gap = _initial_load_gap_single(cluster, "cpu_smart")
         i_gap = _initial_load_gap_single(cluster, "io_smart")
         total_w = bal.w_global_mem + bal.w_global_cpu + bal.w_global_io
         return (bal.w_global_mem * m_gap + bal.w_global_cpu * c_gap + bal.w_global_io * i_gap) / total_w if total_w else m_gap
-
     if method in ["cpu_smart", "memory_smart", "io_smart"]:
         return _initial_load_gap_single(cluster, method)
-
-    # Legacy base methods
     loads = []
     for node in cluster.nodes:
         if node.maintenance: continue
-        if method == "cpu":
-            used = sum(vm.cpu_usage * vm.priority for vm in cluster.vms if vm.node == node.name)
-            total = node.cpu_total
-        elif method == "cpu_psi":
-            used = sum(vm.cpu_pressure * vm.priority for vm in cluster.vms if vm.node == node.name)
-            total = 100.0
-        elif method == "memory_psi":
-            used = sum(vm.memory_pressure * vm.priority for vm in cluster.vms if vm.node == node.name)
-            total = 100.0
-        elif method == "io_psi":
-            used = sum(vm.io_pressure * vm.priority for vm in cluster.vms if vm.node == node.name)
-            total = 100.0
-        else: # memory
-            used = sum(vm.memory * vm.priority for vm in cluster.vms if vm.node == node.name)
-            total = node.memory_total
+        if method == "cpu": used = sum(vm.cpu_usage * vm.priority for vm in cluster.vms if vm.node == node.name); total = node.cpu_total
+        elif method == "cpu_psi": used = sum(vm.cpu_pressure * vm.priority for vm in cluster.vms if vm.node == node.name); total = 100.0
+        elif method == "memory_psi": used = sum(vm.memory_pressure * vm.priority for vm in cluster.vms if vm.node == node.name); total = 100.0
+        elif method == "io_psi": used = sum(vm.io_pressure * vm.priority for vm in cluster.vms if vm.node == node.name); total = 100.0
+        else: used = sum(vm.memory * vm.priority for vm in cluster.vms if vm.node == node.name); total = node.memory_total
         pct = used / total if total else 0
         loads.append(pct)
     return max(loads) - min(loads) if loads else 0.0
@@ -133,11 +115,6 @@ def _find_blocking_vms(cluster: Cluster, time_limit_s: float) -> list[str]:
                 allowed = {node_idx[n] for n in rule["nodes"] if n in node_idx}
                 for j in range(len(nodes)):
                     if j not in allowed: model.add(y[j] == 0)
-        for j, node in enumerate(nodes):
-            if j == node_idx[evac_node]: continue
-            other_load = sum(v.memory for v in vms if v.node == node.name and v.name != test_vm.name)
-            avail_mb = (node.memory_total - other_load) // _MB
-            if test_vm.memory // _MB > avail_mb: model.add(y[j] == 0)
         solver = cp_model.CpSolver()
         solver.parameters.max_time_in_seconds = min(time_limit_s, 5.0)
         if solver.solve(model) not in (cp_model.OPTIMAL, cp_model.FEASIBLE): blockers.append(test_vm.name)
@@ -166,8 +143,6 @@ def solve(cluster: Cluster, time_limit_s: float = 30.0, forbidden_placements: li
             for i in range(len(vms)): model.add(x[i][evj] == 0)
     for i, vm in enumerate(vms):
         if vm.name in cons.ignore: model.add(x[i][node_idx[vm.node]] == 1)
-    
-    # Hard Capacity constraints (Priorities NOT used here, only raw capacity)
     for j, node in enumerate(nodes):
         model.add(sum((vms[i].memory // _MB) * x[i][j] for i in range(len(vms))) <= (node.memory_total - node.memory_reserve) // _MB)
         model.add(sum(vms[i].cpu * 1000 * x[i][j] for i in range(len(vms))) <= max(0, node.cpu_total - node.cpu_reserve) * int(bal.cpu_overcommit * 1000))
@@ -175,15 +150,31 @@ def solve(cluster: Cluster, time_limit_s: float = 30.0, forbidden_placements: li
     for sn in all_storages:
         for j, node in enumerate(nodes):
             model.add(sum((vms[i].disks.get(sn, 0) // _MB) * x[i][j] for i in range(len(vms))) <= max(0, (node.storage_free.get(sn, 0) - node.storage_reserve.get(sn, 0)) // _MB))
+
+    soft_penalties = []
     for rule in cons.anti_affinity:
         indices = [vm_idx[n] for n in rule["vms"] if n in vm_idx]
-        if len(indices) >= 2:
+        if len(indices) < 2: continue
+        if rule.get("hard", True):
             for j in range(len(nodes)): model.add(sum(x[i][j] for i in indices) <= 1)
+        else:
+            for j in range(len(nodes)):
+                violated = model.new_bool_var(f"soft_aa_{rule.get('name','na')}_{nodes[j].name}")
+                model.add(sum(x[i][j] for i in indices) <= 1 + len(indices) * violated)
+                soft_penalties.append(violated)
     for rule in cons.affinity:
         indices = [vm_idx[n] for n in rule["vms"] if n in vm_idx]
-        if len(indices) >= 2:
+        if len(indices) < 2: continue
+        if rule.get("hard", True):
             for other in indices[1:]:
                 for j in range(len(nodes)): model.add(x[indices[0]][j] == x[other][j])
+        else:
+            for other in indices[1:]:
+                for j in range(len(nodes)):
+                    violated = model.new_bool_var(f"soft_aff_{rule.get('name','na')}_{vms[other].name}_{nodes[j].name}")
+                    model.add(x[indices[0]][j] - x[other][j] <= violated)
+                    model.add(x[other][j] - x[indices[0]][j] <= violated)
+                    soft_penalties.append(violated)
     for rule in cons.pin:
         vi = vm_idx.get(rule["vm"])
         if vi is not None:
@@ -193,7 +184,7 @@ def solve(cluster: Cluster, time_limit_s: float = 30.0, forbidden_placements: li
 
     # ── Objective ──
     method = bal.method
-    max_load_val = _LOAD_SCALE * 15 # Increased for priorities (max 3x load)
+    max_load_val = _LOAD_SCALE * 15
     
     def add_smart_gap(m_type):
         u_vars, p_vars = [], []
@@ -206,13 +197,10 @@ def solve(cluster: Cluster, time_limit_s: float = 30.0, forbidden_placements: li
             else: # io
                 cap, used = max(1, sum(node.storage_free.values()) // _MB), sum((sum(vms[i].disks.values()) * vms[i].priority // _MB) * _LOAD_SCALE * x[i][j] for i in range(len(vms)))
             uv = model.new_int_var(0, max_load_val, f"u_{m_type}_{node.name}")
-            model.add_division_equality(uv, used, model.new_constant(cap))
-            u_vars.append(uv)
-            
+            model.add_division_equality(uv, used, model.new_constant(cap)), u_vars.append(uv)
             p_sum = sum(int((vms[i].cpu_pressure if m_type == "cpu" else vms[i].memory_pressure if m_type == "memory" else vms[i].io_pressure) * vms[i].priority * _LOAD_SCALE) * x[i][j] for i in range(len(vms)))
             pv = model.new_int_var(0, 3 * _LOAD_SCALE, f"p_{m_type}_{node.name}")
-            model.add_division_equality(pv, p_sum, model.new_constant(100))
-            p_vars.append(pv)
+            model.add_division_equality(pv, p_sum, model.new_constant(100)), p_vars.append(pv)
         ug = model.new_int_var(0, max_load_val, f"ug_{m_type}")
         if u_vars:
             mxu, mnu = model.new_int_var(0, max_load_val, f"mxu_{m_type}"), model.new_int_var(0, max_load_val, f"mnu_{m_type}")
@@ -242,12 +230,10 @@ def solve(cluster: Cluster, time_limit_s: float = 30.0, forbidden_placements: li
         lvars = []
         for j, node in enumerate(nodes):
             if node.maintenance: continue
-            if method == "cpu": 
-                cap, used = max(1, node.cpu_total - node.cpu_reserve), sum(int(vms[i].cpu_usage * vms[i].priority * _LOAD_SCALE) * x[i][j] for i in range(len(vms)))
+            if method == "cpu": cap, used = max(1, node.cpu_total - node.cpu_reserve), sum(int(vms[i].cpu_usage * vms[i].priority * _LOAD_SCALE) * x[i][j] for i in range(len(vms)))
             elif method in ["cpu_psi", "memory_psi", "io_psi"]:
                 cap, used = 100, sum(int((vms[i].cpu_pressure if method == "cpu_psi" else vms[i].memory_pressure if method == "memory_psi" else vms[i].io_pressure) * vms[i].priority * _LOAD_SCALE) * x[i][j] for i in range(len(vms)))
-            else: # memory
-                cap, used = max(1, (node.memory_total - node.memory_reserve) // _MB), sum((vms[i].memory * vms[i].priority // _MB) * _LOAD_SCALE * x[i][j] for i in range(len(vms)))
+            else: cap, used = max(1, (node.memory_total - node.memory_reserve) // _MB), sum((vms[i].memory * vms[i].priority // _MB) * _LOAD_SCALE * x[i][j] for i in range(len(vms)))
             lv = model.new_int_var(0, max_load_val, f"l_{node.name}")
             model.add_division_equality(lv, used, model.new_constant(cap)), lvars.append(lv)
         load_gap = model.new_int_var(0, max_load_val, "gap")
@@ -256,18 +242,23 @@ def solve(cluster: Cluster, time_limit_s: float = 30.0, forbidden_placements: li
             model.add_max_equality(mx, lvars), model.add_min_equality(mn, lvars), model.add(load_gap == mx - mn)
         else: model.add(load_gap == 0)
 
-    mig_bools = []
+    mig_count_list = []
     for i, vm in enumerate(vms):
         if vm.name not in set(cons.ignore):
-            mb = model.new_bool_var(f"mb_{vm.name}")
-            model.add(mb == 1 - x[i][node_idx[vm.node]]), mig_bools.append(mb)
+            m_var = model.new_bool_var(f"mvar_{vm.name}")
+            model.add(m_var == 1 - x[i][node_idx[vm.node]]), mig_count_list.append(m_var)
     migration_count = model.new_int_var(0, len(vms), "m_cnt")
-    if mig_bools: model.add(migration_count == sum(mig_bools))
+    if mig_count_list: model.add(migration_count == sum(mig_count_list))
     else: model.add(migration_count == 0)
+
+    penalty_total = model.new_int_var(0, 100 * _SOFT_PENALTY, "penalty_total")
+    if soft_penalties: model.add(penalty_total == sum(soft_penalties) * _SOFT_PENALTY)
+    else: model.add(penalty_total == 0)
 
     current_gap = _initial_load_gap(cluster)
     eff_wb, eff_ws = _resolve_balancing(bal, current_gap)
-    model.minimize(eff_wb * load_gap + eff_ws * migration_count)
+    model.minimize(eff_wb * load_gap + eff_ws * migration_count + penalty_total)
+    
     solver = cp_model.CpSolver()
     solver.parameters.max_time_in_seconds = time_limit_s
     t0 = time.monotonic()

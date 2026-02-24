@@ -36,6 +36,7 @@ def test_scenario(scenario_path: Path):
     if expect.constraints_satisfied:
         # Verify anti-affinity
         for rule in cluster.constraints.anti_affinity:
+            if not rule.get("hard", True): continue
             vm_nodes = [
                 solution.placements.get(v)
                 for v in rule["vms"]
@@ -48,6 +49,7 @@ def test_scenario(scenario_path: Path):
 
         # Verify affinity
         for rule in cluster.constraints.affinity:
+            if not rule.get("hard", True): continue
             nodes_used = {
                 solution.placements.get(v)
                 for v in rule["vms"]

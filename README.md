@@ -13,7 +13,9 @@ minimizing a weighted objective of load imbalance and migration cost.
 - **PSI-based balancing** — optimize for minimal resource contention (CPU, RAM, IO pressure).
 - **Named Storage Support** — respects multiple local storage pools (ZFS, LVM, etc.) during placement.
 - **Resource Reservations** — reserve host capacity for overhead/host system stability.
-- **Hard constraints** — affinity, anti-affinity, pin-to-node, ignore, maintenance evacuation.
+- **Hard & Soft Constraints** — Affinity and Anti-Affinity rules can be marked as `hard: false` to allow violations in case of resource exhaustion.
+- **Strict Pinning** — Pinning rules are always treated as hard constraints to ensure hardware/locality requirements are never violated.
+- **VM Priorities** — assign priorities (1-3) to VMs to weight their resource contribution and prioritize important guests.
 - **Iterative Feedback Loop** — solver and planner collaborate to find reachable paths for every solution.
 - **Migration planner** — orders migrations into executable steps respecting capacity dependencies, detects parallelizable moves, breaks cycles with temp-moves.
 - **Reports** — rich terminal output, self-contained HTML with navigation and Mermaid dependency graphs, Markdown, JUnit XML.

@@ -1,0 +1,33 @@
+name: "Soft Constraints — Affinity vs Pinning"
+description: >
+  vm-1 and vm-2 have soft affinity.
+  But vm-1 is pinned to Node-A and vm-2 is pinned to Node-B.
+  The solver must respect the hard pins and violate the soft affinity.
+
+balancing:
+  method: memory
+  balanciness: 1 # Stay put if possible
+
+nodes:
+  node-A: {cpu_total: 10, memory_total_gb: 64}
+  node-B: {cpu_total: 10, memory_total_gb: 64}
+
+vms:
+  vm-1: {node: node-A, cpu: 1, memory_gb: 4}
+  vm-2: {node: node-B, cpu: 1, memory_gb: 4}
+
+constraints:
+  affinity:
+    - name: "Soft-Aff"
+      vms: ["vm-1", "vm-2"]
+      hard: false
+  pin:
+    - {vm: "vm-1", nodes: ["node-A"]}
+    - {vm: "vm-2", nodes: ["node-B"]}
+
+expect:
+  feasible: true
+  constraints_satisfied: false
+  placements:
+    vm-1: node-A
+    vm-2: node-B

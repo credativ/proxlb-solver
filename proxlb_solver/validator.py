@@ -10,51 +10,42 @@ class RuleConflictError(Exception):
 
 def validate_and_merge_constraints(cluster: Cluster) -> Constraints:
     """
-    Merge all constraint sources and detect logical conflicts.
-    
-    Current implementation focuses on:
-    1. Transitive Affinity (merging overlapping groups)
-    2. Affinity vs Anti-Affinity conflicts
-    3. Pinning intersection conflicts within affinity groups
+    Merge all constraint sources and detect logical conflicts for HARD rules.
     """
     vms = {vm.name for vm in cluster.vms}
     orig_cons = cluster.constraints
     
-    # 1. Merge Affinity Groups (Transitive)
-    # Using Disjoint Set Union (DSU) logic or simple iterative merging
+    # 1. Merge HARD Affinity Groups (Transitive)
     merged_affinity: List[Set[str]] = []
     for rule in orig_cons.affinity:
+        if not rule.get("hard", True): continue
         members = set(rule["vms"]) & vms
         if not members:
             continue
-        
-        # Find all existing groups that overlap with this rule
         overlapping = [g for g in merged_affinity if g & members]
         if not overlapping:
             merged_affinity.append(members)
         else:
-            # Merge all overlapping groups into one
             new_group = members
             for g in overlapping:
                 new_group.update(g)
                 merged_affinity.remove(g)
             merged_affinity.append(new_group)
 
-    # 2. Check for Affinity vs Anti-Affinity conflicts
-    # Two VMs in the same merged affinity group must not be in the same anti-affinity group
+    # 2. Check for HARD Affinity vs HARD Anti-Affinity conflicts
     for aa_rule in orig_cons.anti_affinity:
+        if not aa_rule.get("hard", True): continue
         aa_members = set(aa_rule["vms"]) & vms
         for aff_group in merged_affinity:
             conflict_vms = aff_group & aa_members
             if len(conflict_vms) > 1:
                 raise RuleConflictError(
                     f"Conflict in rule '{aa_rule.get('name', 'unknown')}': "
-                    f"VMs {conflict_vms} are in an affinity group but also "
-                    f"marked as anti-affine to each other."
+                    f"VMs {conflict_vms} are in a hard affinity group but also "
+                    f"marked as hard anti-affine to each other."
                 )
 
-    # 3. Pinning Conflict Detection
-    # Calculate effective pins for each VM
+    # 3. Pinning Conflict Detection (Always Hard)
     effective_pins: Dict[str, Set[str]] = {}
     for pin_rule in orig_cons.pin:
         vm = pin_rule["vm"]
@@ -65,14 +56,11 @@ def validate_and_merge_constraints(cluster: Cluster) -> Constraints:
             effective_pins[vm] &= nodes
         else:
             effective_pins[vm] = nodes
-        
         if not effective_pins[vm]:
             raise RuleConflictError(f"VM '{vm}' has empty intersection of allowed nodes from multiple pin rules.")
 
-    # 4. Affinity-aware Pinning Intersection
-    # All VMs in an affinity group must be able to land on the same node
+    # 4. HARD Affinity-aware Pinning Intersection
     for aff_group in merged_affinity:
-        # Start with all nodes, then intersect with all pins in the group
         group_allowed_nodes: Set[str] | None = None
         for vm in aff_group:
             if vm in effective_pins:
@@ -83,10 +71,8 @@ def validate_and_merge_constraints(cluster: Cluster) -> Constraints:
         
         if group_allowed_nodes is not None and not group_allowed_nodes:
             raise RuleConflictError(
-                f"Affinity group {aff_group} is unplaceable: "
+                f"Hard affinity group {aff_group} is unplaceable: "
                 f"the intersection of pinned nodes for its members is empty."
             )
 
-    # Return clean merged constraints
-    # (Note: we return the original format but validated/potentially cleaned)
     return orig_cons
