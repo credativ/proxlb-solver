@@ -1,0 +1,21 @@
+name: "CPU Evacuation — Success"
+description: >
+  Node-A enters maintenance. All VMs must move based on CPU capacity.
+
+balancing:
+  method: cpu
+  balanciness: 3
+
+nodes:
+  node-A: {cpu_total: 16, memory_total_gb: 64, maintenance: true}
+  node-B: {cpu_total: 16, memory_total_gb: 64}
+  node-C: {cpu_total: 16, memory_total_gb: 64}
+
+vms:
+  vm-1: {node: node-A, cpu: 8, memory_gb: 4, cpu_usage: 4.0}
+  vm-2: {node: node-A, cpu: 8, memory_gb: 4, cpu_usage: 4.0}
+  vm-3: {node: node-B, cpu: 4, memory_gb: 4, cpu_usage: 2.0}
+
+expect:
+  feasible: true
+  node_empty: "node-A"
