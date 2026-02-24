@@ -6,12 +6,13 @@ import time
 
 from ortools.sat.python import cp_model
 
-from .models import Balancing, Cluster, Migration, Solution, SolverStats
+from .models import Balancing, Cluster, Migration, Solution, SolverStats, MigrationPlan
+from .planner import plan_migrations
 
 # Scale RAM to MB for integer arithmetic
 _MB = 1024 * 1024
-# Scale load percentages ×1000 for integer precision
-_LOAD_SCALE = 1000
+# Scale load percentages ×100000 for integer precision
+_LOAD_SCALE = 100000
 
 # VMware DRS-style balanciness profiles
 # (w_balance, w_stickiness, migration_threshold as fraction 0.0–1.0)
@@ -133,7 +134,7 @@ def _find_blocking_vms(
                 model.add(y[j] == 0)
 
         # CPU capacity
-        overcommit_100 = int(bal.cpu_overcommit * 100)
+        overcommit_1000 = int(bal.cpu_overcommit * 1000)
         for j, node in enumerate(nodes):
             if j == ej:
                 continue
@@ -141,8 +142,8 @@ def _find_blocking_vms(
                 v.cpu for v in vms
                 if v.node == node.name and v.name != test_vm.name
             )
-            avail_cpu_100 = node.cpu_total * overcommit_100 - other_cpu * 100
-            if test_vm.cpu * 100 > avail_cpu_100:
+            avail_cpu_1000 = node.cpu_total * overcommit_1000 - other_cpu * 1000
+            if test_vm.cpu * 1000 > avail_cpu_1000:
                 model.add(y[j] == 0)
 
         solver = cp_model.CpSolver()
@@ -159,7 +160,11 @@ def _find_blocking_vms(
     return blockers
 
 
-def solve(cluster: Cluster, time_limit_s: float = 30.0) -> Solution:
+def solve(
+    cluster: Cluster,
+    time_limit_s: float = 30.0,
+    forbidden_placements: list[dict[str, str]] | None = None
+) -> Solution:
     """Solve VM placement using CP-SAT."""
     model = cp_model.CpModel()
 
@@ -187,6 +192,21 @@ def solve(cluster: Cluster, time_limit_s: float = 30.0) -> Solution:
         for j, node in enumerate(nodes):
             row.append(model.new_bool_var(f"x_{vm.name}_{node.name}"))
         x.append(row)
+
+    # ── Feedback Loop: Forbidden Placements ──
+    if forbidden_placements:
+        for forbidden in forbidden_placements:
+            # sum(x[vm][node] for vm, node in forbidden) <= len(forbidden) - 1
+            # Meaning: at least one of these assignments must NOT happen
+            literals = []
+            for vm_name, node_name in forbidden.items():
+                if vm_name in vm_idx and node_name in node_idx:
+                    i = vm_idx[vm_name]
+                    j = node_idx[node_name]
+                    literals.append(x[i][j])
+            
+            if literals:
+                model.add(sum(literals) <= len(literals) - 1)
 
     # ── Hard Constraint 1: Unique Placement ──
     for i in range(len(vms)):
@@ -226,26 +246,23 @@ def solve(cluster: Cluster, time_limit_s: float = 30.0) -> Solution:
     # ── Hard Constraint 3: CPU Capacity (Overcommitted) ──
     cpu_overcommit = bal.cpu_overcommit
     for j, node in enumerate(nodes):
-        # Scale: multiply both sides by 100 to avoid floats
-        overcommit_100 = int(cpu_overcommit * 100)
+        # Scale: multiply both sides by 1000 to avoid floats
+        overcommit_1000 = int(cpu_overcommit * 1000)
         model.add(
             sum(
-                vms[i].cpu * 100 * x[i][j]
+                vms[i].cpu * 1000 * x[i][j]
                 for i in range(len(vms))
-            ) <= node.cpu_total * overcommit_100
+            ) <= node.cpu_total * overcommit_1000
         )
 
     # ── Hard Constraint 4: Anti-Affinity ──
     for rule in cons.anti_affinity:
-        aa_vms = rule["vms"]
-        for idx_a in range(len(aa_vms)):
-            for idx_b in range(idx_a + 1, len(aa_vms)):
-                va = vm_idx.get(aa_vms[idx_a])
-                vb = vm_idx.get(aa_vms[idx_b])
-                if va is None or vb is None:
-                    continue
-                for j in range(len(nodes)):
-                    model.add(x[va][j] + x[vb][j] <= 1)
+        aa_vms_indices = [vm_idx[name] for name in rule["vms"] if name in vm_idx]
+        if len(aa_vms_indices) < 2:
+            continue
+        for j in range(len(nodes)):
+            # Sum of all VMs in the group on node j must be <= 1
+            model.add(sum(x[i][j] for i in aa_vms_indices) <= 1)
 
     # ── Hard Constraint 5: Affinity — all VMs in group on same node ──
     for rule in cons.affinity:
@@ -388,3 +405,74 @@ def solve(cluster: Cluster, time_limit_s: float = 30.0) -> Solution:
             wall_time_ms=wall_time_ms,
         ),
     )
+
+
+def solve_reachable(
+    cluster: Cluster,
+    total_time_limit_s: float = 60.0,
+    max_retries: int = 10,
+    quiet: bool = True,
+) -> tuple[Solution, MigrationPlan]:
+    """Solve VM placement and ensure the solution is reachable.
+
+    Iteratively calls solve() and plan_migrations(). If the planner finds
+    an unbreakable cycle, it adds a 'no-good' constraint to the solver
+    and retries until a reachable solution is found or time/retry limits hit.
+    """
+    forbidden = []
+    last_solution = None
+    last_plan = None
+    start_time = time.monotonic()
+
+    for attempt in range(max_retries + 1):
+        elapsed = time.monotonic() - start_time
+        remaining = total_time_limit_s - elapsed
+        
+        if remaining <= 0:
+            if not quiet:
+                print(f"  [solve_reachable] Global timeout reached after {attempt} attempts.")
+            break
+
+        # Give the solver the remaining time, but at least 1s
+        solve_timeout = max(1.0, remaining)
+        solution = solve(cluster, time_limit_s=solve_timeout, forbidden_placements=forbidden)
+        
+        if not solution.feasible:
+            if last_solution:
+                import dataclasses
+                return dataclasses.replace(last_solution, path_feasible=False), last_plan
+            return solution, plan_migrations(cluster, solution)
+
+        plan = plan_migrations(cluster, solution)
+        last_solution = solution
+        last_plan = plan
+
+        if plan.path_feasible:
+            return solution, plan
+
+        if not plan.unbreakable_cycle:
+            # Path infeasible but no cycle identified? Should not happen.
+            break
+
+        # Forbid this specific target configuration for the cycle VMs
+        # This is a 'no-good' clause that prunes large parts of the search tree
+        cycle_forbidden = {}
+        for vm_name in plan.unbreakable_cycle:
+            target_node = solution.placements.get(vm_name)
+            if target_node:
+                cycle_forbidden[vm_name] = target_node
+        
+        if not cycle_forbidden:
+            break
+
+        forbidden.append(cycle_forbidden)
+        if not quiet:
+            print(f"  [solve_reachable] Attempt {attempt+1}: Unbreakable cycle {plan.unbreakable_cycle}. Retrying...")
+
+    # If we fall through, it means we hit max_retries or timeout without finding a feasible path.
+    # Return the last found (but unreachable) solution marked as path_feasible=False.
+    if last_solution:
+        import dataclasses
+        return dataclasses.replace(last_solution, path_feasible=False), last_plan
+    
+    return solution, plan_migrations(cluster, solution)
