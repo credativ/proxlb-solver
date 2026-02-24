@@ -45,3 +45,5 @@ constraints:
 expect:
   feasible: true
   constraints_satisfied: true
+  path_feasible: false
+

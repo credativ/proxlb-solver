@@ -43,7 +43,14 @@ def print_report(cluster: Cluster, solution: Solution) -> None:
     console.print(f"\n[bold]{cluster.name}[/bold]")
     console.print(f"  {cluster.description}\n")
 
-    if not solution.feasible:
+    if not solution.path_feasible:
+        console.print("[yellow bold]UNREACHABLE[/yellow bold] — no executable path found.")
+        console.print("  The solver found a valid target state, but it is blocked by circular")
+        console.print("  dependencies or capacity constraints during migration.")
+        console.print(f"  Attempts: {solution.stats.status} (after retries)")
+        # Do not return here, show the tables below for debugging
+
+    elif not solution.feasible:
         console.print("[red bold]INFEASIBLE[/red bold] — no valid placement found.")
         console.print(f"  Solver status: {solution.stats.status}")
         if solution.blocking_vms:
@@ -57,6 +64,14 @@ def print_report(cluster: Cluster, solution: Solution) -> None:
                         f"{vm.memory / _GB:.0f} GB RAM, on {vm.node}"
                     )
         return
+
+    if not solution.path_feasible:
+        console.print("[yellow bold]UNREACHABLE[/yellow bold] — no executable path found.")
+        console.print("  The solver found a valid target state, but it is blocked by circular")
+        console.print("  dependencies or capacity constraints during migration.")
+        console.print(f"  Attempts: {solution.stats.status} (after retries)")
+        # Continue to show what the solver tried (it might help debugging)
+
 
     # Node utilization table
     table = Table(title="Node Utilization (Before → After)")
@@ -172,7 +187,8 @@ def _compute_load_gap(cluster: Cluster, placements: dict[str, str]) -> float:
 
 
 def _check_expectations(
-    cluster: Cluster, solution: Solution
+    cluster: Cluster, solution: Solution,
+    migration_plan: MigrationPlan | None = None,
 ) -> list[tuple[str, str, bool, str]]:
     """Evaluate all expect checks. Returns list of (check, expected, passed, detail)."""
     expect = cluster.expect
@@ -312,6 +328,29 @@ def _check_expectations(
                 "Placement %s" % vm_name,
                 expected, passed, detail
             ))
+
+    # Path feasibility (migration planner)
+    if expect.path_feasible is not None and migration_plan is not None:
+        actual = migration_plan.path_feasible
+        passed = actual == expect.path_feasible
+        if expect.path_feasible:
+            detail = (
+                "path exists" if actual
+                else "no executable path (%s)"
+                % ", ".join(migration_plan.unbreakable_cycle)
+            )
+        else:
+            detail = (
+                "blocked as expected (%s)"
+                % ", ".join(migration_plan.unbreakable_cycle)
+                if not actual
+                else "path exists (expected blocked)"
+            )
+        checks.append((
+            "Migration path",
+            "feasible" if expect.path_feasible else "blocked",
+            passed, detail
+        ))
 
     return checks
 
@@ -1115,6 +1154,7 @@ a.anchor:hover{text-decoration:underline}
     h.append('<div class="brand">ProxLB Solver</div>')
     h.append("<ul>")
     h.append('<li><a href="#summary">Summary</a></li>')
+    h.append('<li><a href="#parameters">Parameter Reference</a></li>')
     h.append('<li><a href="#overview">Scenario Overview</a></li>')
     h.append('<li><a class="section">Scenarios</a></li>')
     for _, cluster, solution in results:
@@ -1168,6 +1208,187 @@ a.anchor:hover{text-decoration:underline}
     )
     h.append("</div>")  # summary-grid
     h.append("</div>")  # summary
+
+    # ── Parameter Reference ──
+    h.append('<div id="parameters">')
+    h.append("<h2>Parameter Reference</h2>")
+
+    # Balancing
+    h.append("<h3>Balancing</h3>")
+    h.append("<table>")
+    h.append(
+        "<tr><th>Parameter</th><th>Type</th>"
+        "<th>Default</th><th>Description</th></tr>"
+    )
+    h.append(
+        "<tr><td><code>method</code></td><td>string</td>"
+        "<td><code>memory</code></td>"
+        "<td>Balancing metric (<code>memory</code>)</td></tr>"
+    )
+    h.append(
+        "<tr><td><code>balanciness</code></td><td>int (1\u20135)</td>"
+        "<td><code>3</code></td>"
+        "<td>DRS-style aggressiveness level (see table below)</td></tr>"
+    )
+    h.append(
+        "<tr><td><code>cpu_overcommit</code></td><td>float</td>"
+        "<td><code>2.0</code></td>"
+        "<td>CPU overcommit factor &mdash; effective CPU per node ="
+        " <code>cpu_total \u00d7 cpu_overcommit</code></td></tr>"
+    )
+    h.append(
+        "<tr><td><code>w_balance</code></td><td>int</td>"
+        "<td><em>derived</em></td>"
+        "<td>Manual override: weight for load-gap"
+        " minimization in the objective</td></tr>"
+    )
+    h.append(
+        "<tr><td><code>w_stickiness</code></td><td>int</td>"
+        "<td><em>derived</em></td>"
+        "<td>Manual override: weight for migration"
+        " penalty in the objective</td></tr>"
+    )
+    h.append("</table>")
+
+    # Balanciness Levels
+    h.append("<h4>Balanciness Levels</h4>")
+    h.append("<table>")
+    h.append(
+        "<tr><th>Level</th><th>Name</th><th>w_balance</th>"
+        "<th>w_stickiness</th><th>Migration Threshold</th>"
+        "<th>Behavior</th></tr>"
+    )
+    h.append(
+        "<tr><td>1</td><td>Conservative</td><td>0</td><td>1</td>"
+        "<td>&mdash;</td>"
+        "<td>Only mandatory migrations (maintenance, constraints)</td></tr>"
+    )
+    h.append(
+        "<tr><td>2</td><td>Low</td><td>1</td><td>50</td>"
+        "<td>25%</td>"
+        "<td>Migrate only if load gap &gt; 25%</td></tr>"
+    )
+    h.append(
+        "<tr><td>3</td><td><strong>Moderate</strong></td>"
+        "<td>10</td><td>10</td><td>15%</td>"
+        "<td>Default &mdash; balanced cost/benefit</td></tr>"
+    )
+    h.append(
+        "<tr><td>4</td><td>High</td><td>50</td><td>5</td>"
+        "<td>5%</td><td>Active rebalancing</td></tr>"
+    )
+    h.append(
+        "<tr><td>5</td><td>Aggressive</td><td>100</td><td>1</td>"
+        "<td>0%</td><td>Chase near-perfect balance</td></tr>"
+    )
+    h.append("</table>")
+    h.append(
+        "<p>The <strong>migration threshold</strong> prevents unnecessary"
+        " migrations: if the current load gap is already below the threshold"
+        " for the selected level, no voluntary migrations occur"
+        " (only hard-constraint moves like maintenance evacuation).</p>"
+    )
+
+    # Constraints
+    h.append("<h3>Constraints</h3>")
+    h.append("<table>")
+    h.append(
+        "<tr><th>Constraint</th><th>YAML Key</th>"
+        "<th>Description</th></tr>"
+    )
+    h.append(
+        "<tr><td><strong>Affinity</strong></td>"
+        "<td><code>constraints.affinity</code></td>"
+        "<td>VMs in the group must be placed on the same node</td></tr>"
+    )
+    h.append(
+        "<tr><td><strong>Anti-Affinity</strong></td>"
+        "<td><code>constraints.anti_affinity</code></td>"
+        "<td>VMs in the group must be on different nodes</td></tr>"
+    )
+    h.append(
+        "<tr><td><strong>Pin</strong></td>"
+        "<td><code>constraints.pin</code></td>"
+        "<td>VM may only run on the listed nodes</td></tr>"
+    )
+    h.append(
+        "<tr><td><strong>Ignore</strong></td>"
+        "<td><code>constraints.ignore</code></td>"
+        "<td>VM stays on its current node &mdash;"
+        " solver will not move it</td></tr>"
+    )
+    h.append(
+        "<tr><td><strong>Maintenance</strong></td>"
+        "<td><code>nodes.&lt;name&gt;.maintenance</code></td>"
+        "<td>No VMs may be placed on this node &mdash;"
+        " existing VMs are evacuated</td></tr>"
+    )
+    h.append(
+        "<tr><td><strong>Evacuate</strong></td>"
+        "<td><code>evacuate_node</code></td>"
+        "<td>Drain all VMs from the named node"
+        " (like on-demand maintenance)</td></tr>"
+    )
+    h.append("</table>")
+
+    # Solver Objective
+    h.append("<h3>Solver Objective</h3>")
+    h.append("<p>The solver minimizes:</p>")
+    h.append(
+        '<p style="background:var(--code-bg);padding:8px 12px;'
+        'border-radius:6px;font-family:monospace;font-size:13px">'
+        "Objective = w_balance \u00d7 LoadGap"
+        " + w_stickiness \u00d7 MigrationCount</p>"
+    )
+    h.append("<ul>")
+    h.append(
+        "<li><strong>LoadGap</strong>:"
+        " <code>max(node_load%) \u2212 min(node_load%)</code>"
+        " across all non-maintenance nodes"
+        " (RAM utilization, scaled \u00d71000 for integer precision)</li>"
+    )
+    h.append(
+        "<li><strong>MigrationCount</strong>: Number of VMs placed"
+        " on a different node than their current one</li>"
+    )
+    h.append(
+        "<li>Lower objective = better balance with fewer migrations</li>"
+    )
+    h.append("</ul>")
+
+    # Expectations
+    h.append("<h3>Expectations (<code>expect</code> block)</h3>")
+    h.append("<table>")
+    h.append("<tr><th>Field</th><th>Type</th><th>Description</th></tr>")
+    h.append(
+        "<tr><td><code>feasible</code></td><td>bool</td>"
+        "<td>Whether a valid placement must exist</td></tr>"
+    )
+    h.append(
+        "<tr><td><code>constraints_satisfied</code></td><td>bool</td>"
+        "<td>Verify all constraints are respected</td></tr>"
+    )
+    h.append(
+        "<tr><td><code>spread_improved</code></td><td>bool</td>"
+        "<td>Load gap must be smaller than before</td></tr>"
+    )
+    h.append(
+        "<tr><td><code>max_migrations</code></td><td>int</td>"
+        "<td>Upper bound on migration count</td></tr>"
+    )
+    h.append(
+        "<tr><td><code>node_empty</code></td><td>string</td>"
+        "<td>Assert that the named node has 0 VMs after solving</td></tr>"
+    )
+    h.append(
+        "<tr><td><code>placements</code></td><td>map</td>"
+        "<td>Assert specific VM placements"
+        " (<code>vm: node</code> or"
+        " <code>vm: &quot;== other_vm&quot;</code>"
+        " for co-location)</td></tr>"
+    )
+    h.append("</table>")
+    h.append("</div>")  # parameters
 
     # Overview table
     h.append('<div id="overview">')
