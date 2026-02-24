@@ -38,6 +38,7 @@ class Expect:
     max_migrations: int | None = None
     placements: dict[str, str] = field(default_factory=dict)
     node_empty: str | None = None  # assert this node has 0 VMs after solve
+    path_feasible: bool | None = None  # None = don't check; True/False = assert
 
 
 @dataclass(frozen=True)
@@ -100,3 +101,4 @@ class Solution:
     migrations: list[Migration]
     stats: SolverStats
     blocking_vms: list[str] = field(default_factory=list)  # VMs preventing evacuation
+    path_feasible: bool = True  # False if feedback loop failed to find executable path

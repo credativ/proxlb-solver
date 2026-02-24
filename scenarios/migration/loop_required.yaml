@@ -1,0 +1,53 @@
+name: "Loop Required — Deadlock Bypass"
+description: >
+  VM-A and VM-B want to swap, which is optimal but creates an unbreakable
+  cycle because no temp node is available (node-C is maintenance).
+  However, VM-A is also allowed on node-D. The solver should first try the 
+  swap, fail the path check, then successfully find the path to node-D.
+
+balancing:
+  method: memory
+  balanciness: 5
+  cpu_overcommit: 1.0
+
+nodes:
+  node-A:
+    cpu_total: 16
+    memory_total_gb: 60
+  node-B:
+    cpu_total: 16
+    memory_total_gb: 60
+  node-C:
+    cpu_total: 16
+    memory_total_gb: 64
+    maintenance: true
+  node-D:
+    cpu_total: 16
+    memory_total_gb: 60
+
+vms:
+  vm-a:
+    node: node-A
+    cpu: 4
+    memory_gb: 50
+    type: vm
+  vm-b:
+    node: node-B
+    cpu: 4
+    memory_gb: 50
+    type: vm
+
+constraints:
+  pin:
+    - vm: vm-a
+      nodes: [node-B, node-D]
+    - vm: vm-b
+      nodes: [node-A]
+
+expect:
+  feasible: true
+  constraints_satisfied: true
+  path_feasible: true
+  placements:
+    vm-a: node-D
+    vm-b: node-A

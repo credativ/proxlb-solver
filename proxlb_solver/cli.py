@@ -11,7 +11,7 @@ from .planner import plan_migrations
 from .reporter import (
     print_report, write_html_report, write_junit_xml, write_markdown_report,
 )
-from .solver import solve
+from .solver import solve, solve_reachable
 
 SCENARIOS_DIR = Path(__file__).parent.parent / "scenarios"
 
@@ -58,10 +58,10 @@ def main() -> None:
     for path in scenario_files:
         rel = str(path.relative_to(args.scenarios))
         cluster = load_scenario(path)
-        solution = solve(cluster)
+        
+        # Use reachable solver (feedback loop)
+        solution, mig_plan = solve_reachable(cluster, quiet=args.quiet)
 
-        # Plan migration execution order
-        mig_plan = plan_migrations(cluster, solution)
         migration_plans[rel] = mig_plan
 
         if not args.quiet:
