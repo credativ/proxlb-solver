@@ -1,0 +1,30 @@
+name: "Transitive Affinity Conflict"
+description: >
+  vm-1 + vm-2 (aff), vm-2 + vm-3 (aff) implies all three together.
+  But vm-1 and vm-3 are marked anti-affine. Early fail required.
+
+balancing:
+  method: memory
+  balanciness: 3
+
+nodes:
+  node-A: {cpu_total: 16, memory_total_gb: 64}
+  node-B: {cpu_total: 16, memory_total_gb: 64}
+
+vms:
+  vm-1: {node: node-A, cpu: 2, memory_gb: 8}
+  vm-2: {node: node-A, cpu: 2, memory_gb: 8}
+  vm-3: {node: node-B, cpu: 2, memory_gb: 8}
+
+constraints:
+  affinity:
+    - name: rule-1
+      vms: [vm-1, vm-2]
+    - name: rule-2
+      vms: [vm-2, vm-3]
+  anti_affinity:
+    - name: rule-fail
+      vms: [vm-1, vm-3]
+
+expect:
+  feasible: false

@@ -9,10 +9,16 @@ minimizing a weighted objective of load imbalance and migration cost.
 
 - **CP-SAT optimization** — exact solver, not heuristics. Finds provably optimal placements.
 - **DRS-style balanciness** (1–5) — from conservative (no voluntary migrations) to aggressive (chase perfect balance).
+- **Multi-faceted CPU Strategy** — vCPUs for hard limits, actual load/usage for balancing.
+- **PSI-based balancing** — optimize for minimal resource contention (CPU, RAM, IO pressure).
+- **Named Storage Support** — respects multiple local storage pools (ZFS, LVM, etc.) during placement.
+- **Resource Reservations** — reserve host capacity for overhead/host system stability.
 - **Hard constraints** — affinity, anti-affinity, pin-to-node, ignore, maintenance evacuation.
+- **Iterative Feedback Loop** — solver and planner collaborate to find reachable paths for every solution.
 - **Migration planner** — orders migrations into executable steps respecting capacity dependencies, detects parallelizable moves, breaks cycles with temp-moves.
 - **Reports** — rich terminal output, self-contained HTML with navigation and Mermaid dependency graphs, Markdown, JUnit XML.
-- **Scenario-driven testing** — 27 YAML scenarios covering basic balancing, constraints, infeasible cases, migration chains, and regressions.
+- **Live Simulation** — tool to test solver against real cluster snapshots.
+- **Scenario-driven testing** — 72 YAML scenarios covering basic balancing, constraints, infeasible cases, migration chains, and regressions.
 
 ## Quick Start
 
@@ -124,6 +130,25 @@ Relying solely on current CPU usage leads to "ghost migrations"—moving VMs to 
 
 ### Future: Pressure Stall Information (PSI)
 While load-based balancing is robust, **PSI** (available in Proxmox 9+) provides even better signals by measuring how long processes actually *wait* for CPU. Integrating PSI into the solver's objective function is the planned next step for even more intelligent scheduling.
+
+### PSI-based Balancing (Pressure Stall Information)
+
+ProxLB CP-SAT supports balancing based on **PSI**, a Linux kernel feature that provides a canonical way to measure resource contention. Unlike raw utilization, PSI tells us how long tasks were actually *stalled* waiting for CPU, Memory, or IO.
+
+- **CPU PSI**: Measures stalls due to CPU contention (many processes competing for cycles).
+- **Memory PSI**: Measures stalls due to memory pressure (e.g., paging/swapping).
+- **IO PSI**: Measures stalls due to storage throughput or latency bottlenecks.
+
+#### The PSI Algorithm in the Solver
+Since PSI is an *intensive* metric (it doesn't sum up like RAM bytes), the solver uses an additive contribution model for rebalancing:
+1.  **VM Contribution**: Each VM's individual pressure metric (e.g., `some` 10s average) is treated as its "pressure footprint".
+2.  **Node Aggregation**: The solver calculates the projected pressure on a node as the sum of its assigned VMs' footprints.
+3.  **Optimization**: The solver minimizes the `LoadGap` between node pressure values. This effectively moves "high-pressure" VMs away from nodes that are already experiencing stalls.
+
+#### Further Reading
+- [Linux Kernel Documentation: PSI](https://www.kernel.org/doc/html/latest/accounting/psi.html)
+- [Proxmox VE: Pressure Stall Information](https://pve.proxmox.com/wiki/Performance_Optimization#PSI)
+- [Facebook Engineering: A new way to monitor resource pressure](https://engineering.fb.com/2018/11/20/ml-applications/psi-open-source/)
 
 ## Live Simulation
 

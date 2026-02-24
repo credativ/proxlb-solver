@@ -1,0 +1,27 @@
+name: "Memory PSI — Thrashing VM"
+description: >
+  vm-1 uses only 4GB RAM but has high memory pressure (15%), indicating swapping/thrashing.
+  vm-2 uses 16GB RAM but has 0% pressure.
+  Initial: both on node-A. Node-A has 20% total pressure.
+  Solver should move vm-1 to Node-B to alleviate the thrashing node.
+
+balancing:
+  method: memory_psi
+  balanciness: 5
+  w_stickiness: 0
+
+nodes:
+  node-A: {cpu_total: 10, memory_total_gb: 32, memory_pressure: 20.0}
+  node-B: {cpu_total: 10, memory_total_gb: 32, memory_pressure: 0.0}
+
+vms:
+  vm-1: {node: node-A, cpu: 1, memory_gb: 4, memory_pressure: 15.0} # Thrashing!
+  vm-2: {node: node-A, cpu: 1, memory_gb: 16, memory_pressure: 5.0}
+  vm-3: {node: node-B, cpu: 1, memory_gb: 4, memory_pressure: 0.0}
+
+expect:
+  feasible: true
+  spread_improved: true
+  max_migrations: 1
+  placements:
+    vm-1: node-B

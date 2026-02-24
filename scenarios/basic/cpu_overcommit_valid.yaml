@@ -1,0 +1,18 @@
+name: "CPU Overcommit — Within Limit"
+description: >
+  30 vCPUs on a 16-core node with 2.0 overcommit (limit 32). Should be feasible.
+
+balancing:
+  method: cpu
+  balanciness: 1
+  cpu_overcommit: 2.0
+
+nodes:
+  node-A: {cpu_total: 16, memory_total_gb: 64}
+
+vms:
+  vm-1: {node: node-A, cpu: 15, memory_gb: 8}
+  vm-2: {node: node-A, cpu: 15, memory_gb: 8}
+
+expect:
+  feasible: true

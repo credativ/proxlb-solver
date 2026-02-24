@@ -1,0 +1,33 @@
+name: "Heterogeneous Storage — ZFS vs LVM"
+description: >
+  vm-zfs is on node-A and uses zfs storage. node-B has plenty of RAM/CPU
+  but only has local-lvm storage. The solver must realize that vm-zfs
+  cannot move to node-B because the required storage name is missing there.
+
+balancing:
+  method: memory
+  balanciness: 5
+
+nodes:
+  node-A:
+    cpu_total: 16
+    memory_total_gb: 64
+    storage_free:
+      zfs: 1000
+  node-B:
+    cpu_total: 16
+    memory_total_gb: 128 # More RAM here!
+    storage_free:
+      local-lvm: 500
+
+vms:
+  vm-zfs:
+    node: node-A
+    cpu: 4
+    memory_gb: 32
+    disks:
+      zfs: 100
+
+expect:
+  feasible: true
+  max_migrations: 0 # Should stay on A because B has no 'zfs'

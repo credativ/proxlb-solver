@@ -170,42 +170,67 @@ def write_junit_xml(
 
 # ── Markdown helpers ──
 
+def _compute_single_gap(cluster: Cluster, placements: dict[str, str], metric: str) -> float:
+    loads = []
+    for node in cluster.nodes:
+        if node.maintenance: continue
+        if metric == "cpu":
+            used = sum(v.cpu_usage for v in cluster.vms if placements.get(v.name) == node.name)
+            cap = node.cpu_total
+        elif metric == "cpu_psi":
+            used = sum(v.cpu_pressure for v in cluster.vms if placements.get(v.name) == node.name)
+            cap = 100.0
+        elif metric == "memory":
+            used = sum(v.memory for v in cluster.vms if placements.get(v.name) == node.name)
+            cap = node.memory_total
+        elif metric == "memory_psi":
+            used = sum(v.memory_pressure for v in cluster.vms if placements.get(v.name) == node.name)
+            cap = 100.0
+        elif metric == "io_usage":
+            used = sum(sum(v.disks.values()) for v in cluster.vms if placements.get(v.name) == node.name)
+            cap = sum(node.storage_free.values()) or 1
+        elif metric == "io_psi":
+            used = sum(v.io_pressure for v in cluster.vms if placements.get(v.name) == node.name)
+            cap = 100.0
+        else: return 0.0
+        loads.append(used / cap if cap else 0)
+    return max(loads) - min(loads) if loads else 0.0
+
+
 def _compute_load_gap(cluster: Cluster, placements: dict[str, str]) -> float:
     method = cluster.balancing.method
+    bal = cluster.balancing
     loads = []
     for node in cluster.nodes:
         if node.maintenance:
             continue
         
         if method == "cpu":
-            used = sum(
-                vm.cpu_usage for vm in cluster.vms
-                if placements.get(vm.name) == node.name
-            )
+            used = sum(vm.cpu_usage for vm in cluster.vms if placements.get(vm.name) == node.name)
             total = node.cpu_total
         elif method == "cpu_psi":
-            used = sum(
-                vm.cpu_pressure for vm in cluster.vms
-                if placements.get(vm.name) == node.name
-            )
+            used = sum(vm.cpu_pressure for vm in cluster.vms if placements.get(vm.name) == node.name)
             total = 100.0
         elif method == "memory_psi":
-            used = sum(
-                vm.memory_pressure for vm in cluster.vms
-                if placements.get(vm.name) == node.name
-            )
+            used = sum(vm.memory_pressure for vm in cluster.vms if placements.get(vm.name) == node.name)
             total = 100.0
         elif method == "io_psi":
-            used = sum(
-                vm.io_pressure for vm in cluster.vms
-                if placements.get(vm.name) == node.name
-            )
+            used = sum(vm.io_pressure for vm in cluster.vms if placements.get(vm.name) == node.name)
             total = 100.0
+        elif method == "cpu_smart":
+            u_gap = _compute_single_gap(cluster, placements, "cpu")
+            p_gap = _compute_single_gap(cluster, placements, "cpu_psi")
+            return (bal.w_cpu_usage * u_gap + bal.w_cpu_psi * p_gap) / (bal.w_cpu_usage + bal.w_cpu_psi)
+        elif method == "memory_smart":
+            u_gap = _compute_single_gap(cluster, placements, "memory")
+            p_gap = _compute_single_gap(cluster, placements, "memory_psi")
+            return (bal.w_mem_usage * u_gap + bal.w_mem_psi * p_gap) / (bal.w_mem_usage + bal.w_mem_psi)
+        elif method == "io_smart":
+            u_gap = _compute_single_gap(cluster, placements, "io_usage")
+            p_gap = _compute_single_gap(cluster, placements, "io_psi")
+            return (bal.w_io_usage * u_gap + bal.w_io_psi * p_gap) / (bal.w_io_usage + bal.w_io_psi)
         else:  # memory
-            used = sum(
-                vm.memory for vm in cluster.vms
-                if placements.get(vm.name) == node.name
-            )
+            used = sum(vm.memory for vm in cluster.vms if placements.get(vm.name) == node.name)
             total = node.memory_total
             
         pct = used / total if total else 0

@@ -1,0 +1,50 @@
+name: "IO Smart Balancing — Disk + Performance"
+description: >
+  Node-A storage is full, Node-B VMs have high IO-wait (high PSI).
+  Solver should spread VMs to optimize for both space and speed.
+
+balancing:
+  method: io_smart
+  balanciness: 5
+  w_io_usage: 1
+  w_io_psi: 1
+
+nodes:
+  node-A:
+    cpu_total: 10
+    memory_total_gb: 64
+    storage_free: {local: 100}
+  node-B:
+    cpu_total: 10
+    memory_total_gb: 64
+    storage_free: {local: 1000}
+    io_pressure: 20.0
+  node-C:
+    cpu_total: 10
+    memory_total_gb: 64
+    storage_free: {local: 1000}
+
+vms:
+  vm-disk-hog:
+    node: node-A
+    cpu: 1
+    memory_gb: 4
+    disks: {local: 90}
+    io_pressure: 1.0
+  vm-io-staller:
+    node: node-B
+    cpu: 1
+    memory_gb: 4
+    disks: {local: 10}
+    io_pressure: 18.0
+  vm-quiet:
+    node: node-C
+    cpu: 1
+    memory_gb: 4
+    disks: {local: 10}
+    io_pressure: 0.0
+
+expect:
+  feasible: true
+  spread_improved: true
+  max_migrations: 2

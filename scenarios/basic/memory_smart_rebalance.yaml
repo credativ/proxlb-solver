@@ -1,0 +1,26 @@
+name: "Memory Smart Balancing — RAM + Paging"
+description: >
+  Distribute RAM hog and Paging hog across three nodes.
+
+balancing:
+  method: memory_smart
+  balanciness: 5
+  w_mem_usage: 1
+  w_mem_psi: 1
+  w_stickiness: 0
+
+nodes:
+  node-A: {cpu_total: 10, memory_total_gb: 32, memory_pressure: 0.0}
+  node-B: {cpu_total: 10, memory_total_gb: 32, memory_pressure: 0.0}
+  node-C: {cpu_total: 10, memory_total_gb: 32, memory_pressure: 0.0}
+
+vms:
+  vm-ram-heavy: {node: node-A, cpu: 1, memory_gb: 28, memory_pressure: 1.0}
+  vm-thrashing: {node: node-A, cpu: 1, memory_gb: 4, memory_pressure: 18.0}
+  vm-idle-1: {node: node-B, cpu: 1, memory_gb: 4, memory_pressure: 0.0}
+  vm-idle-2: {node: node-C, cpu: 1, memory_gb: 4, memory_pressure: 0.0}
+
+expect:
+  feasible: true
+  spread_improved: true
+  max_migrations: 4

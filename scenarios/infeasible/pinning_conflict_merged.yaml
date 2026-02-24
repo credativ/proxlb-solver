@@ -1,0 +1,30 @@
+name: "Pinning Conflict via Affinity"
+description: >
+  vm-1 pinned to node-A, vm-2 pinned to node-B.
+  Affinity requires them to be together.
+  Intersection of allowed nodes is empty.
+
+balancing:
+  method: memory
+  balanciness: 3
+
+nodes:
+  node-A: {cpu_total: 16, memory_total_gb: 64}
+  node-B: {cpu_total: 16, memory_total_gb: 64}
+
+vms:
+  vm-1: {node: node-A, cpu: 2, memory_gb: 8}
+  vm-2: {node: node-B, cpu: 2, memory_gb: 8}
+
+constraints:
+  affinity:
+    - name: must-be-together
+      vms: [vm-1, vm-2]
+  pin:
+    - vm: vm-1
+      nodes: [node-A]
+    - vm: vm-2
+      nodes: [node-B]
+
+expect:
+  feasible: false

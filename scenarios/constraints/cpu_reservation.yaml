@@ -1,0 +1,32 @@
+name: "CPU Reservation — Core Buffer"
+description: >
+  vm-1 (14 vCPUs) is on node-A (16 physical cores).
+  A CPU reservation of 4 cores is defined. Usable cores = 12.
+  vm-1 MUST move away.
+
+balancing:
+  method: cpu
+  balanciness: 1
+  cpu_overcommit: 1.0
+
+nodes:
+  node-A:
+    cpu_total: 16
+    memory_total_gb: 64
+    reserve:
+      cpu: 4
+  node-B:
+    cpu_total: 16
+    memory_total_gb: 64
+
+vms:
+  vm-1:
+    node: node-A
+    cpu: 14
+    memory_gb: 8
+
+expect:
+  feasible: true
+  max_migrations: 1
+  placements:
+    vm-1: node-B

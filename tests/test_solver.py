@@ -7,30 +7,7 @@ from pathlib import Path
 
 from proxlb_solver.loader import load_scenario
 from proxlb_solver.solver import solve
-
-
-def _compute_load_gap(cluster, placements) -> float:
-    """Compute RAM load gap across non-maintenance nodes."""
-    loads = []
-    for node in cluster.nodes:
-        if node.maintenance:
-            continue
-        used = sum(
-            vm.memory
-            for vm in cluster.vms
-            if placements.get(vm.name) == node.name
-        )
-        pct = used / node.memory_total if node.memory_total else 0
-        loads.append(pct)
-    if not loads:
-        return 0.0
-    return max(loads) - min(loads)
-
-
-def _initial_load_gap(cluster) -> float:
-    """Compute RAM load gap of initial placement."""
-    placements = {vm.name: vm.node for vm in cluster.vms}
-    return _compute_load_gap(cluster, placements)
+from proxlb_solver.reporter import _compute_load_gap, _initial_load_gap
 
 
 def test_scenario(scenario_path: Path):
@@ -119,11 +96,46 @@ def test_scenario(scenario_path: Path):
             vm = next(v for v in cluster.vms if v.name == vm_name)
             node_used[target] += vm.memory
         for node_name, used in node_used.items():
-            cap = node_map[node_name].memory_total
+            node = node_map[node_name]
+            cap = node.memory_total - node.memory_reserve
             if used > cap:
                 errors.append(
                     f"RAM overflow on {node_name}: "
-                    f"{used} > {cap}"
+                    f"{used} > {cap} (Total: {node.memory_total}, Res: {node.memory_reserve})"
+                )
+        
+        # Verify storage capacity
+        storage_usage = defaultdict(lambda: defaultdict(int)) # node -> {storage -> bytes}
+        for vm_name, target in solution.placements.items():
+            vm = next(v for v in cluster.vms if v.name == vm_name)
+            for sname, sbytes in vm.disks.items():
+                storage_usage[target][sname] += sbytes
+        
+        for node_name, usages in storage_usage.items():
+            node = node_map[node_name]
+            for sname, sbytes in usages.items():
+                # cap = Free - Reserved
+                cap = node.storage_free.get(sname, 0) - node.storage_reserve.get(sname, 0)
+                if sbytes > cap:
+                    errors.append(
+                        f"Storage '{sname}' overflow on {node_name}: "
+                        f"{sbytes} > {cap}"
+                    )
+        
+        # Verify CPU capacity
+        cpu_usage_vcpus = defaultdict(int)
+        for vm_name, target in solution.placements.items():
+            vm = next(v for v in cluster.vms if v.name == vm_name)
+            cpu_usage_vcpus[target] += vm.cpu
+        
+        for node_name, used_vcpus in cpu_usage_vcpus.items():
+            node = node_map[node_name]
+            # usable_cores = (total - reserve) * overcommit
+            usable = max(0, node.cpu_total - node.cpu_reserve)
+            limit = int(usable * cluster.balancing.cpu_overcommit)
+            if used_vcpus > limit:
+                errors.append(
+                    f"vCPU overflow on {node_name}: {used_vcpus} > {limit}"
                 )
 
     # Check spread improved

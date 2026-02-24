@@ -1,0 +1,4013 @@
+name: Large Unbalanced — 40 Nodes, 750 VMs
+description: 'A large production-like cluster with 40 heterogeneous nodes (big/medium/small) and 750 VMs of varying sizes.
+  The initial placement is heavily skewed: ~60% of VMs are piled onto the first 8 nodes while 22 nodes are nearly empty. Includes
+  anti-affinity (DB spread), affinity (web groups), pin (bigdata on big nodes), and ignore (legacy micro VMs) constraints.'
+balancing:
+  method: memory
+  balanciness: 4
+  cpu_overcommit: 2.0
+nodes:
+  pve-01:
+    cpu_total: 64
+    memory_total_gb: 512
+  pve-02:
+    cpu_total: 64
+    memory_total_gb: 512
+  pve-03:
+    cpu_total: 64
+    memory_total_gb: 512
+  pve-04:
+    cpu_total: 64
+    memory_total_gb: 512
+  pve-05:
+    cpu_total: 64
+    memory_total_gb: 512
+  pve-06:
+    cpu_total: 64
+    memory_total_gb: 512
+  pve-07:
+    cpu_total: 64
+    memory_total_gb: 512
+  pve-08:
+    cpu_total: 64
+    memory_total_gb: 512
+  pve-09:
+    cpu_total: 64
+    memory_total_gb: 512
+  pve-10:
+    cpu_total: 64
+    memory_total_gb: 512
+  pve-11:
+    cpu_total: 32
+    memory_total_gb: 256
+  pve-12:
+    cpu_total: 32
+    memory_total_gb: 256
+  pve-13:
+    cpu_total: 32
+    memory_total_gb: 256
+  pve-14:
+    cpu_total: 32
+    memory_total_gb: 256
+  pve-15:
+    cpu_total: 32
+    memory_total_gb: 256
+  pve-16:
+    cpu_total: 32
+    memory_total_gb: 256
+  pve-17:
+    cpu_total: 32
+    memory_total_gb: 256
+  pve-18:
+    cpu_total: 32
+    memory_total_gb: 256
+  pve-19:
+    cpu_total: 32
+    memory_total_gb: 256
+  pve-20:
+    cpu_total: 32
+    memory_total_gb: 256
+  pve-21:
+    cpu_total: 32
+    memory_total_gb: 256
+  pve-22:
+    cpu_total: 32
+    memory_total_gb: 256
+  pve-23:
+    cpu_total: 32
+    memory_total_gb: 256
+  pve-24:
+    cpu_total: 32
+    memory_total_gb: 256
+  pve-25:
+    cpu_total: 32
+    memory_total_gb: 256
+  pve-26:
+    cpu_total: 32
+    memory_total_gb: 256
+  pve-27:
+    cpu_total: 32
+    memory_total_gb: 256
+  pve-28:
+    cpu_total: 32
+    memory_total_gb: 256
+  pve-29:
+    cpu_total: 32
+    memory_total_gb: 256
+  pve-30:
+    cpu_total: 32
+    memory_total_gb: 256
+  pve-31:
+    cpu_total: 16
+    memory_total_gb: 128
+  pve-32:
+    cpu_total: 16
+    memory_total_gb: 128
+  pve-33:
+    cpu_total: 16
+    memory_total_gb: 128
+  pve-34:
+    cpu_total: 16
+    memory_total_gb: 128
+  pve-35:
+    cpu_total: 16
+    memory_total_gb: 128
+  pve-36:
+    cpu_total: 16
+    memory_total_gb: 128
+  pve-37:
+    cpu_total: 16
+    memory_total_gb: 128
+  pve-38:
+    cpu_total: 16
+    memory_total_gb: 128
+  pve-39:
+    cpu_total: 16
+    memory_total_gb: 128
+  pve-40:
+    cpu_total: 16
+    memory_total_gb: 128
+vms:
+  micro-0001:
+    node: pve-09
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0002:
+    node: pve-12
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0003:
+    node: pve-02
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0004:
+    node: pve-17
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0005:
+    node: pve-07
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0006:
+    node: pve-02
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0007:
+    node: pve-01
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0008:
+    node: pve-07
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0009:
+    node: pve-05
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0010:
+    node: pve-09
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0011:
+    node: pve-11
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0012:
+    node: pve-14
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0013:
+    node: pve-04
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0014:
+    node: pve-29
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0015:
+    node: pve-07
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0016:
+    node: pve-06
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0017:
+    node: pve-09
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0018:
+    node: pve-17
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0019:
+    node: pve-07
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0020:
+    node: pve-05
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0021:
+    node: pve-18
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0022:
+    node: pve-30
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0023:
+    node: pve-02
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0024:
+    node: pve-04
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0025:
+    node: pve-10
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0026:
+    node: pve-22
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0027:
+    node: pve-08
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0028:
+    node: pve-14
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0029:
+    node: pve-06
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0030:
+    node: pve-05
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0031:
+    node: pve-10
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0032:
+    node: pve-11
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0033:
+    node: pve-04
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0034:
+    node: pve-07
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0035:
+    node: pve-04
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0036:
+    node: pve-09
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0037:
+    node: pve-01
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0038:
+    node: pve-15
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0039:
+    node: pve-04
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0040:
+    node: pve-37
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0041:
+    node: pve-29
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0042:
+    node: pve-08
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0043:
+    node: pve-08
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0044:
+    node: pve-03
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0045:
+    node: pve-05
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0046:
+    node: pve-15
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0047:
+    node: pve-31
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0048:
+    node: pve-03
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0049:
+    node: pve-02
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0050:
+    node: pve-10
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0051:
+    node: pve-03
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0052:
+    node: pve-15
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0053:
+    node: pve-07
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0054:
+    node: pve-08
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0055:
+    node: pve-01
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0056:
+    node: pve-10
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0057:
+    node: pve-17
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0058:
+    node: pve-14
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0059:
+    node: pve-07
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0060:
+    node: pve-01
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0061:
+    node: pve-27
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0062:
+    node: pve-24
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0063:
+    node: pve-02
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0064:
+    node: pve-28
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0065:
+    node: pve-17
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0066:
+    node: pve-11
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0067:
+    node: pve-03
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0068:
+    node: pve-01
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0069:
+    node: pve-08
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0070:
+    node: pve-06
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0071:
+    node: pve-28
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0072:
+    node: pve-04
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0073:
+    node: pve-21
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0074:
+    node: pve-08
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0075:
+    node: pve-17
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0076:
+    node: pve-11
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0077:
+    node: pve-17
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0078:
+    node: pve-07
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0079:
+    node: pve-36
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0080:
+    node: pve-12
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0081:
+    node: pve-15
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0082:
+    node: pve-39
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0083:
+    node: pve-08
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0084:
+    node: pve-04
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0085:
+    node: pve-01
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0086:
+    node: pve-04
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0087:
+    node: pve-01
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0088:
+    node: pve-01
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0089:
+    node: pve-01
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0090:
+    node: pve-21
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0091:
+    node: pve-05
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0092:
+    node: pve-12
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0093:
+    node: pve-08
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0094:
+    node: pve-08
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0095:
+    node: pve-12
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0096:
+    node: pve-07
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0097:
+    node: pve-07
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0098:
+    node: pve-01
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0099:
+    node: pve-10
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0100:
+    node: pve-06
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0101:
+    node: pve-10
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0102:
+    node: pve-04
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0103:
+    node: pve-03
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0104:
+    node: pve-05
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0105:
+    node: pve-02
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0106:
+    node: pve-02
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0107:
+    node: pve-01
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0108:
+    node: pve-26
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0109:
+    node: pve-08
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0110:
+    node: pve-07
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0111:
+    node: pve-24
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0112:
+    node: pve-07
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0113:
+    node: pve-08
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0114:
+    node: pve-08
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0115:
+    node: pve-05
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0116:
+    node: pve-01
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0117:
+    node: pve-01
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0118:
+    node: pve-09
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0119:
+    node: pve-08
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0120:
+    node: pve-03
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0121:
+    node: pve-02
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0122:
+    node: pve-21
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0123:
+    node: pve-04
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0124:
+    node: pve-04
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0125:
+    node: pve-01
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0126:
+    node: pve-15
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0127:
+    node: pve-18
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0128:
+    node: pve-05
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0129:
+    node: pve-06
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0130:
+    node: pve-07
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0131:
+    node: pve-05
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0132:
+    node: pve-02
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0133:
+    node: pve-02
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0134:
+    node: pve-04
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0135:
+    node: pve-03
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0136:
+    node: pve-21
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0137:
+    node: pve-30
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0138:
+    node: pve-08
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0139:
+    node: pve-13
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0140:
+    node: pve-17
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0141:
+    node: pve-05
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0142:
+    node: pve-22
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0143:
+    node: pve-23
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0144:
+    node: pve-02
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0145:
+    node: pve-11
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0146:
+    node: pve-04
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0147:
+    node: pve-12
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0148:
+    node: pve-13
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0149:
+    node: pve-05
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0150:
+    node: pve-20
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0151:
+    node: pve-07
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0152:
+    node: pve-09
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0153:
+    node: pve-03
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0154:
+    node: pve-13
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0155:
+    node: pve-08
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0156:
+    node: pve-07
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0157:
+    node: pve-02
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0158:
+    node: pve-03
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0159:
+    node: pve-06
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0160:
+    node: pve-03
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0161:
+    node: pve-01
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0162:
+    node: pve-01
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0163:
+    node: pve-25
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0164:
+    node: pve-10
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0165:
+    node: pve-07
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0166:
+    node: pve-23
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0167:
+    node: pve-26
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0168:
+    node: pve-24
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0169:
+    node: pve-19
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0170:
+    node: pve-06
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0171:
+    node: pve-15
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0172:
+    node: pve-12
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0173:
+    node: pve-02
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0174:
+    node: pve-01
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0175:
+    node: pve-26
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0176:
+    node: pve-08
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0177:
+    node: pve-04
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0178:
+    node: pve-04
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0179:
+    node: pve-05
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0180:
+    node: pve-27
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0181:
+    node: pve-07
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0182:
+    node: pve-17
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0183:
+    node: pve-01
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0184:
+    node: pve-05
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0185:
+    node: pve-05
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0186:
+    node: pve-07
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0187:
+    node: pve-06
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0188:
+    node: pve-02
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0189:
+    node: pve-04
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0190:
+    node: pve-07
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0191:
+    node: pve-04
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0192:
+    node: pve-02
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0193:
+    node: pve-29
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0194:
+    node: pve-10
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0195:
+    node: pve-13
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0196:
+    node: pve-07
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0197:
+    node: pve-05
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0198:
+    node: pve-04
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0199:
+    node: pve-07
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  micro-0200:
+    node: pve-11
+    cpu: 1
+    memory_gb: 2
+    type: vm
+  small-0201:
+    node: pve-13
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0202:
+    node: pve-01
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0203:
+    node: pve-04
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0204:
+    node: pve-06
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0205:
+    node: pve-08
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0206:
+    node: pve-17
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0207:
+    node: pve-03
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0208:
+    node: pve-13
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0209:
+    node: pve-06
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0210:
+    node: pve-04
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0211:
+    node: pve-12
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0212:
+    node: pve-11
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0213:
+    node: pve-04
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0214:
+    node: pve-38
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0215:
+    node: pve-10
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0216:
+    node: pve-04
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0217:
+    node: pve-15
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0218:
+    node: pve-04
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0219:
+    node: pve-01
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0220:
+    node: pve-22
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0221:
+    node: pve-12
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0222:
+    node: pve-08
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0223:
+    node: pve-04
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0224:
+    node: pve-22
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0225:
+    node: pve-08
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0226:
+    node: pve-17
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0227:
+    node: pve-08
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0228:
+    node: pve-17
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0229:
+    node: pve-08
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0230:
+    node: pve-34
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0231:
+    node: pve-04
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0232:
+    node: pve-13
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0233:
+    node: pve-17
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0234:
+    node: pve-04
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0235:
+    node: pve-02
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0236:
+    node: pve-12
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0237:
+    node: pve-06
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0238:
+    node: pve-21
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0239:
+    node: pve-04
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0240:
+    node: pve-03
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0241:
+    node: pve-10
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0242:
+    node: pve-06
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0243:
+    node: pve-07
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0244:
+    node: pve-07
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0245:
+    node: pve-01
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0246:
+    node: pve-37
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0247:
+    node: pve-01
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0248:
+    node: pve-28
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0249:
+    node: pve-15
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0250:
+    node: pve-04
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0251:
+    node: pve-05
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0252:
+    node: pve-01
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0253:
+    node: pve-07
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0254:
+    node: pve-16
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0255:
+    node: pve-38
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0256:
+    node: pve-07
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0257:
+    node: pve-01
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0258:
+    node: pve-07
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0259:
+    node: pve-08
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0260:
+    node: pve-05
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0261:
+    node: pve-04
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0262:
+    node: pve-06
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0263:
+    node: pve-15
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0264:
+    node: pve-07
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0265:
+    node: pve-02
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0266:
+    node: pve-01
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0267:
+    node: pve-30
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0268:
+    node: pve-02
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0269:
+    node: pve-09
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0270:
+    node: pve-12
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0271:
+    node: pve-01
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0272:
+    node: pve-12
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0273:
+    node: pve-02
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0274:
+    node: pve-04
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0275:
+    node: pve-05
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0276:
+    node: pve-11
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0277:
+    node: pve-10
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0278:
+    node: pve-11
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0279:
+    node: pve-22
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0280:
+    node: pve-05
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0281:
+    node: pve-07
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0282:
+    node: pve-04
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0283:
+    node: pve-04
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0284:
+    node: pve-05
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0285:
+    node: pve-38
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0286:
+    node: pve-18
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0287:
+    node: pve-14
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0288:
+    node: pve-06
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0289:
+    node: pve-06
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0290:
+    node: pve-07
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0291:
+    node: pve-10
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0292:
+    node: pve-06
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0293:
+    node: pve-16
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0294:
+    node: pve-15
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0295:
+    node: pve-05
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0296:
+    node: pve-17
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0297:
+    node: pve-16
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0298:
+    node: pve-05
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0299:
+    node: pve-04
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0300:
+    node: pve-10
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0301:
+    node: pve-08
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0302:
+    node: pve-08
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0303:
+    node: pve-07
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0304:
+    node: pve-08
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0305:
+    node: pve-24
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0306:
+    node: pve-06
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0307:
+    node: pve-14
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0308:
+    node: pve-05
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0309:
+    node: pve-04
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0310:
+    node: pve-07
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0311:
+    node: pve-04
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0312:
+    node: pve-16
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0313:
+    node: pve-01
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0314:
+    node: pve-04
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0315:
+    node: pve-04
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0316:
+    node: pve-06
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0317:
+    node: pve-06
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0318:
+    node: pve-06
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0319:
+    node: pve-08
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0320:
+    node: pve-05
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0321:
+    node: pve-04
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0322:
+    node: pve-03
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0323:
+    node: pve-08
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0324:
+    node: pve-05
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0325:
+    node: pve-25
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0326:
+    node: pve-06
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0327:
+    node: pve-01
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0328:
+    node: pve-11
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0329:
+    node: pve-01
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0330:
+    node: pve-03
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0331:
+    node: pve-16
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0332:
+    node: pve-01
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0333:
+    node: pve-08
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0334:
+    node: pve-06
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0335:
+    node: pve-01
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0336:
+    node: pve-08
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0337:
+    node: pve-02
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0338:
+    node: pve-02
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0339:
+    node: pve-01
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0340:
+    node: pve-05
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0341:
+    node: pve-04
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0342:
+    node: pve-07
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0343:
+    node: pve-18
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0344:
+    node: pve-07
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0345:
+    node: pve-08
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0346:
+    node: pve-07
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0347:
+    node: pve-01
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0348:
+    node: pve-10
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0349:
+    node: pve-25
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0350:
+    node: pve-13
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0351:
+    node: pve-11
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0352:
+    node: pve-02
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0353:
+    node: pve-07
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0354:
+    node: pve-08
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0355:
+    node: pve-04
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0356:
+    node: pve-05
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0357:
+    node: pve-16
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0358:
+    node: pve-04
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0359:
+    node: pve-39
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0360:
+    node: pve-04
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0361:
+    node: pve-04
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0362:
+    node: pve-13
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0363:
+    node: pve-10
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0364:
+    node: pve-05
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0365:
+    node: pve-05
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0366:
+    node: pve-08
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0367:
+    node: pve-15
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0368:
+    node: pve-35
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0369:
+    node: pve-08
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0370:
+    node: pve-01
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0371:
+    node: pve-29
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0372:
+    node: pve-09
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0373:
+    node: pve-01
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0374:
+    node: pve-40
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0375:
+    node: pve-18
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0376:
+    node: pve-03
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0377:
+    node: pve-08
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0378:
+    node: pve-24
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0379:
+    node: pve-32
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0380:
+    node: pve-16
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0381:
+    node: pve-34
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0382:
+    node: pve-06
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0383:
+    node: pve-02
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0384:
+    node: pve-29
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0385:
+    node: pve-08
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0386:
+    node: pve-07
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0387:
+    node: pve-17
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0388:
+    node: pve-02
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0389:
+    node: pve-06
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0390:
+    node: pve-07
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0391:
+    node: pve-19
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0392:
+    node: pve-17
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0393:
+    node: pve-01
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0394:
+    node: pve-06
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0395:
+    node: pve-16
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0396:
+    node: pve-09
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0397:
+    node: pve-03
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0398:
+    node: pve-33
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0399:
+    node: pve-34
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  small-0400:
+    node: pve-04
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  web-0401:
+    node: pve-13
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0402:
+    node: pve-07
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0403:
+    node: pve-02
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0404:
+    node: pve-02
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0405:
+    node: pve-11
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0406:
+    node: pve-05
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0407:
+    node: pve-05
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0408:
+    node: pve-08
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0409:
+    node: pve-26
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0410:
+    node: pve-03
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0411:
+    node: pve-03
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0412:
+    node: pve-27
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0413:
+    node: pve-15
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0414:
+    node: pve-05
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0415:
+    node: pve-13
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0416:
+    node: pve-18
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0417:
+    node: pve-08
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0418:
+    node: pve-33
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0419:
+    node: pve-06
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0420:
+    node: pve-07
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0421:
+    node: pve-06
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0422:
+    node: pve-26
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0423:
+    node: pve-04
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0424:
+    node: pve-32
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0425:
+    node: pve-08
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0426:
+    node: pve-15
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0427:
+    node: pve-03
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0428:
+    node: pve-01
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0429:
+    node: pve-06
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0430:
+    node: pve-33
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0431:
+    node: pve-08
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0432:
+    node: pve-03
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0433:
+    node: pve-03
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0434:
+    node: pve-05
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0435:
+    node: pve-07
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0436:
+    node: pve-14
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0437:
+    node: pve-36
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0438:
+    node: pve-06
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0439:
+    node: pve-16
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0440:
+    node: pve-20
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0441:
+    node: pve-12
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0442:
+    node: pve-13
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0443:
+    node: pve-21
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0444:
+    node: pve-02
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0445:
+    node: pve-10
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0446:
+    node: pve-05
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0447:
+    node: pve-20
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0448:
+    node: pve-01
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0449:
+    node: pve-06
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0450:
+    node: pve-04
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0451:
+    node: pve-03
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0452:
+    node: pve-02
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0453:
+    node: pve-15
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0454:
+    node: pve-12
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0455:
+    node: pve-03
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0456:
+    node: pve-05
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0457:
+    node: pve-01
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0458:
+    node: pve-33
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0459:
+    node: pve-40
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0460:
+    node: pve-02
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0461:
+    node: pve-06
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0462:
+    node: pve-28
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0463:
+    node: pve-15
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0464:
+    node: pve-16
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0465:
+    node: pve-12
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0466:
+    node: pve-34
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0467:
+    node: pve-07
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0468:
+    node: pve-05
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0469:
+    node: pve-28
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0470:
+    node: pve-07
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0471:
+    node: pve-01
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0472:
+    node: pve-34
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0473:
+    node: pve-13
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0474:
+    node: pve-12
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0475:
+    node: pve-14
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0476:
+    node: pve-04
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0477:
+    node: pve-11
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0478:
+    node: pve-09
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0479:
+    node: pve-08
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0480:
+    node: pve-06
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0481:
+    node: pve-10
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0482:
+    node: pve-29
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0483:
+    node: pve-11
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0484:
+    node: pve-06
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0485:
+    node: pve-05
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0486:
+    node: pve-13
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0487:
+    node: pve-34
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0488:
+    node: pve-28
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0489:
+    node: pve-14
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0490:
+    node: pve-16
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0491:
+    node: pve-23
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0492:
+    node: pve-12
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0493:
+    node: pve-40
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0494:
+    node: pve-36
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0495:
+    node: pve-07
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0496:
+    node: pve-02
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0497:
+    node: pve-05
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0498:
+    node: pve-06
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0499:
+    node: pve-04
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0500:
+    node: pve-06
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0501:
+    node: pve-26
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0502:
+    node: pve-16
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0503:
+    node: pve-28
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0504:
+    node: pve-10
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0505:
+    node: pve-01
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0506:
+    node: pve-08
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0507:
+    node: pve-04
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0508:
+    node: pve-23
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0509:
+    node: pve-06
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0510:
+    node: pve-17
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0511:
+    node: pve-03
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0512:
+    node: pve-39
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0513:
+    node: pve-08
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0514:
+    node: pve-13
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0515:
+    node: pve-06
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0516:
+    node: pve-08
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0517:
+    node: pve-30
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0518:
+    node: pve-06
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0519:
+    node: pve-06
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0520:
+    node: pve-05
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0521:
+    node: pve-02
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0522:
+    node: pve-33
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0523:
+    node: pve-04
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0524:
+    node: pve-18
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0525:
+    node: pve-20
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0526:
+    node: pve-12
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0527:
+    node: pve-37
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0528:
+    node: pve-04
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0529:
+    node: pve-04
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0530:
+    node: pve-03
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0531:
+    node: pve-18
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0532:
+    node: pve-03
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0533:
+    node: pve-36
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0534:
+    node: pve-03
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0535:
+    node: pve-01
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0536:
+    node: pve-06
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0537:
+    node: pve-12
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0538:
+    node: pve-01
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0539:
+    node: pve-01
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0540:
+    node: pve-07
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0541:
+    node: pve-02
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0542:
+    node: pve-06
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0543:
+    node: pve-02
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0544:
+    node: pve-04
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0545:
+    node: pve-20
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0546:
+    node: pve-17
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0547:
+    node: pve-01
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0548:
+    node: pve-08
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0549:
+    node: pve-15
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  web-0550:
+    node: pve-16
+    cpu: 4
+    memory_gb: 8
+    type: vm
+  app-0551:
+    node: pve-16
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0552:
+    node: pve-02
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0553:
+    node: pve-03
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0554:
+    node: pve-05
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0555:
+    node: pve-18
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0556:
+    node: pve-06
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0557:
+    node: pve-05
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0558:
+    node: pve-07
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0559:
+    node: pve-02
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0560:
+    node: pve-39
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0561:
+    node: pve-36
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0562:
+    node: pve-12
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0563:
+    node: pve-04
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0564:
+    node: pve-08
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0565:
+    node: pve-02
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0566:
+    node: pve-06
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0567:
+    node: pve-14
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0568:
+    node: pve-40
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0569:
+    node: pve-21
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0570:
+    node: pve-02
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0571:
+    node: pve-02
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0572:
+    node: pve-14
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0573:
+    node: pve-17
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0574:
+    node: pve-06
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0575:
+    node: pve-15
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0576:
+    node: pve-07
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0577:
+    node: pve-20
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0578:
+    node: pve-38
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0579:
+    node: pve-02
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0580:
+    node: pve-04
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0581:
+    node: pve-08
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0582:
+    node: pve-02
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0583:
+    node: pve-06
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0584:
+    node: pve-05
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0585:
+    node: pve-07
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0586:
+    node: pve-18
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0587:
+    node: pve-17
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0588:
+    node: pve-05
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0589:
+    node: pve-05
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0590:
+    node: pve-13
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0591:
+    node: pve-30
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0592:
+    node: pve-03
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0593:
+    node: pve-07
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0594:
+    node: pve-01
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0595:
+    node: pve-04
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0596:
+    node: pve-08
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0597:
+    node: pve-06
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0598:
+    node: pve-06
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0599:
+    node: pve-18
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0600:
+    node: pve-01
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0601:
+    node: pve-01
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0602:
+    node: pve-13
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0603:
+    node: pve-07
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0604:
+    node: pve-08
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0605:
+    node: pve-04
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0606:
+    node: pve-10
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0607:
+    node: pve-02
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0608:
+    node: pve-08
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0609:
+    node: pve-05
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0610:
+    node: pve-07
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0611:
+    node: pve-20
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0612:
+    node: pve-05
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0613:
+    node: pve-23
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0614:
+    node: pve-13
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0615:
+    node: pve-01
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0616:
+    node: pve-07
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0617:
+    node: pve-07
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0618:
+    node: pve-04
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0619:
+    node: pve-06
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0620:
+    node: pve-01
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0621:
+    node: pve-08
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0622:
+    node: pve-29
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0623:
+    node: pve-07
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0624:
+    node: pve-15
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0625:
+    node: pve-07
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0626:
+    node: pve-06
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0627:
+    node: pve-08
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0628:
+    node: pve-14
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0629:
+    node: pve-02
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0630:
+    node: pve-07
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0631:
+    node: pve-07
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0632:
+    node: pve-29
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0633:
+    node: pve-03
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0634:
+    node: pve-02
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0635:
+    node: pve-04
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0636:
+    node: pve-30
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0637:
+    node: pve-03
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0638:
+    node: pve-03
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0639:
+    node: pve-03
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0640:
+    node: pve-10
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0641:
+    node: pve-08
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0642:
+    node: pve-08
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0643:
+    node: pve-18
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0644:
+    node: pve-18
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0645:
+    node: pve-06
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0646:
+    node: pve-02
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0647:
+    node: pve-05
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0648:
+    node: pve-18
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0649:
+    node: pve-02
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  app-0650:
+    node: pve-08
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  db-0651:
+    node: pve-06
+    cpu: 8
+    memory_gb: 32
+    type: vm
+  db-0652:
+    node: pve-10
+    cpu: 8
+    memory_gb: 32
+    type: vm
+  db-0653:
+    node: pve-10
+    cpu: 8
+    memory_gb: 32
+    type: vm
+  db-0654:
+    node: pve-17
+    cpu: 8
+    memory_gb: 32
+    type: vm
+  db-0655:
+    node: pve-01
+    cpu: 8
+    memory_gb: 32
+    type: vm
+  db-0656:
+    node: pve-04
+    cpu: 8
+    memory_gb: 32
+    type: vm
+  db-0657:
+    node: pve-08
+    cpu: 8
+    memory_gb: 32
+    type: vm
+  db-0658:
+    node: pve-01
+    cpu: 8
+    memory_gb: 32
+    type: vm
+  db-0659:
+    node: pve-06
+    cpu: 8
+    memory_gb: 32
+    type: vm
+  db-0660:
+    node: pve-21
+    cpu: 8
+    memory_gb: 32
+    type: vm
+  db-0661:
+    node: pve-03
+    cpu: 8
+    memory_gb: 32
+    type: vm
+  db-0662:
+    node: pve-08
+    cpu: 8
+    memory_gb: 32
+    type: vm
+  db-0663:
+    node: pve-35
+    cpu: 8
+    memory_gb: 32
+    type: vm
+  db-0664:
+    node: pve-03
+    cpu: 8
+    memory_gb: 32
+    type: vm
+  db-0665:
+    node: pve-05
+    cpu: 8
+    memory_gb: 32
+    type: vm
+  db-0666:
+    node: pve-06
+    cpu: 8
+    memory_gb: 32
+    type: vm
+  db-0667:
+    node: pve-09
+    cpu: 8
+    memory_gb: 32
+    type: vm
+  db-0668:
+    node: pve-14
+    cpu: 8
+    memory_gb: 32
+    type: vm
+  db-0669:
+    node: pve-02
+    cpu: 8
+    memory_gb: 32
+    type: vm
+  db-0670:
+    node: pve-07
+    cpu: 8
+    memory_gb: 32
+    type: vm
+  db-0671:
+    node: pve-03
+    cpu: 8
+    memory_gb: 32
+    type: vm
+  db-0672:
+    node: pve-03
+    cpu: 8
+    memory_gb: 32
+    type: vm
+  db-0673:
+    node: pve-28
+    cpu: 8
+    memory_gb: 32
+    type: vm
+  db-0674:
+    node: pve-40
+    cpu: 8
+    memory_gb: 32
+    type: vm
+  db-0675:
+    node: pve-02
+    cpu: 8
+    memory_gb: 32
+    type: vm
+  db-0676:
+    node: pve-07
+    cpu: 8
+    memory_gb: 32
+    type: vm
+  db-0677:
+    node: pve-14
+    cpu: 8
+    memory_gb: 32
+    type: vm
+  db-0678:
+    node: pve-17
+    cpu: 8
+    memory_gb: 32
+    type: vm
+  db-0679:
+    node: pve-07
+    cpu: 8
+    memory_gb: 32
+    type: vm
+  db-0680:
+    node: pve-01
+    cpu: 8
+    memory_gb: 32
+    type: vm
+  db-0681:
+    node: pve-03
+    cpu: 8
+    memory_gb: 32
+    type: vm
+  db-0682:
+    node: pve-29
+    cpu: 8
+    memory_gb: 32
+    type: vm
+  db-0683:
+    node: pve-34
+    cpu: 8
+    memory_gb: 32
+    type: vm
+  db-0684:
+    node: pve-03
+    cpu: 8
+    memory_gb: 32
+    type: vm
+  db-0685:
+    node: pve-05
+    cpu: 8
+    memory_gb: 32
+    type: vm
+  db-0686:
+    node: pve-10
+    cpu: 8
+    memory_gb: 32
+    type: vm
+  db-0687:
+    node: pve-01
+    cpu: 8
+    memory_gb: 32
+    type: vm
+  db-0688:
+    node: pve-18
+    cpu: 8
+    memory_gb: 32
+    type: vm
+  db-0689:
+    node: pve-07
+    cpu: 8
+    memory_gb: 32
+    type: vm
+  db-0690:
+    node: pve-02
+    cpu: 8
+    memory_gb: 32
+    type: vm
+  db-0691:
+    node: pve-18
+    cpu: 8
+    memory_gb: 32
+    type: vm
+  db-0692:
+    node: pve-11
+    cpu: 8
+    memory_gb: 32
+    type: vm
+  db-0693:
+    node: pve-09
+    cpu: 8
+    memory_gb: 32
+    type: vm
+  db-0694:
+    node: pve-06
+    cpu: 8
+    memory_gb: 32
+    type: vm
+  db-0695:
+    node: pve-16
+    cpu: 8
+    memory_gb: 32
+    type: vm
+  db-0696:
+    node: pve-16
+    cpu: 8
+    memory_gb: 32
+    type: vm
+  db-0697:
+    node: pve-02
+    cpu: 8
+    memory_gb: 32
+    type: vm
+  db-0698:
+    node: pve-04
+    cpu: 8
+    memory_gb: 32
+    type: vm
+  db-0699:
+    node: pve-25
+    cpu: 8
+    memory_gb: 32
+    type: vm
+  db-0700:
+    node: pve-05
+    cpu: 8
+    memory_gb: 32
+    type: vm
+  analytics-0701:
+    node: pve-33
+    cpu: 8
+    memory_gb: 48
+    type: vm
+  analytics-0702:
+    node: pve-15
+    cpu: 8
+    memory_gb: 48
+    type: vm
+  analytics-0703:
+    node: pve-04
+    cpu: 8
+    memory_gb: 48
+    type: vm
+  analytics-0704:
+    node: pve-25
+    cpu: 8
+    memory_gb: 48
+    type: vm
+  analytics-0705:
+    node: pve-11
+    cpu: 8
+    memory_gb: 48
+    type: vm
+  analytics-0706:
+    node: pve-20
+    cpu: 8
+    memory_gb: 48
+    type: vm
+  analytics-0707:
+    node: pve-14
+    cpu: 8
+    memory_gb: 48
+    type: vm
+  analytics-0708:
+    node: pve-01
+    cpu: 8
+    memory_gb: 48
+    type: vm
+  analytics-0709:
+    node: pve-17
+    cpu: 8
+    memory_gb: 48
+    type: vm
+  analytics-0710:
+    node: pve-28
+    cpu: 8
+    memory_gb: 48
+    type: vm
+  analytics-0711:
+    node: pve-02
+    cpu: 8
+    memory_gb: 48
+    type: vm
+  analytics-0712:
+    node: pve-08
+    cpu: 8
+    memory_gb: 48
+    type: vm
+  analytics-0713:
+    node: pve-05
+    cpu: 8
+    memory_gb: 48
+    type: vm
+  analytics-0714:
+    node: pve-03
+    cpu: 8
+    memory_gb: 48
+    type: vm
+  analytics-0715:
+    node: pve-14
+    cpu: 8
+    memory_gb: 48
+    type: vm
+  analytics-0716:
+    node: pve-32
+    cpu: 8
+    memory_gb: 48
+    type: vm
+  analytics-0717:
+    node: pve-05
+    cpu: 8
+    memory_gb: 48
+    type: vm
+  analytics-0718:
+    node: pve-01
+    cpu: 8
+    memory_gb: 48
+    type: vm
+  analytics-0719:
+    node: pve-04
+    cpu: 8
+    memory_gb: 48
+    type: vm
+  analytics-0720:
+    node: pve-08
+    cpu: 8
+    memory_gb: 48
+    type: vm
+  analytics-0721:
+    node: pve-15
+    cpu: 8
+    memory_gb: 48
+    type: vm
+  analytics-0722:
+    node: pve-11
+    cpu: 8
+    memory_gb: 48
+    type: vm
+  analytics-0723:
+    node: pve-17
+    cpu: 8
+    memory_gb: 48
+    type: vm
+  analytics-0724:
+    node: pve-11
+    cpu: 8
+    memory_gb: 48
+    type: vm
+  analytics-0725:
+    node: pve-13
+    cpu: 8
+    memory_gb: 48
+    type: vm
+  analytics-0726:
+    node: pve-09
+    cpu: 8
+    memory_gb: 48
+    type: vm
+  analytics-0727:
+    node: pve-19
+    cpu: 8
+    memory_gb: 48
+    type: vm
+  analytics-0728:
+    node: pve-18
+    cpu: 8
+    memory_gb: 48
+    type: vm
+  analytics-0729:
+    node: pve-16
+    cpu: 8
+    memory_gb: 48
+    type: vm
+  analytics-0730:
+    node: pve-13
+    cpu: 8
+    memory_gb: 48
+    type: vm
+  bigdata-0731:
+    node: pve-10
+    cpu: 16
+    memory_gb: 64
+    type: vm
+  bigdata-0732:
+    node: pve-09
+    cpu: 16
+    memory_gb: 64
+    type: vm
+  bigdata-0733:
+    node: pve-10
+    cpu: 16
+    memory_gb: 64
+    type: vm
+  bigdata-0734:
+    node: pve-12
+    cpu: 16
+    memory_gb: 64
+    type: vm
+  bigdata-0735:
+    node: pve-09
+    cpu: 16
+    memory_gb: 64
+    type: vm
+  bigdata-0736:
+    node: pve-10
+    cpu: 16
+    memory_gb: 64
+    type: vm
+  bigdata-0737:
+    node: pve-09
+    cpu: 16
+    memory_gb: 64
+    type: vm
+  bigdata-0738:
+    node: pve-12
+    cpu: 16
+    memory_gb: 64
+    type: vm
+  bigdata-0739:
+    node: pve-09
+    cpu: 16
+    memory_gb: 64
+    type: vm
+  bigdata-0740:
+    node: pve-09
+    cpu: 16
+    memory_gb: 64
+    type: vm
+  bigdata-0741:
+    node: pve-10
+    cpu: 16
+    memory_gb: 64
+    type: vm
+  bigdata-0742:
+    node: pve-24
+    cpu: 16
+    memory_gb: 64
+    type: vm
+  bigdata-0743:
+    node: pve-21
+    cpu: 16
+    memory_gb: 64
+    type: vm
+  bigdata-0744:
+    node: pve-30
+    cpu: 16
+    memory_gb: 64
+    type: vm
+  bigdata-0745:
+    node: pve-37
+    cpu: 16
+    memory_gb: 64
+    type: vm
+  bigdata-0746:
+    node: pve-38
+    cpu: 16
+    memory_gb: 64
+    type: vm
+  bigdata-0747:
+    node: pve-31
+    cpu: 16
+    memory_gb: 64
+    type: vm
+  bigdata-0748:
+    node: pve-20
+    cpu: 16
+    memory_gb: 64
+    type: vm
+  bigdata-0749:
+    node: pve-30
+    cpu: 16
+    memory_gb: 64
+    type: vm
+  bigdata-0750:
+    node: pve-19
+    cpu: 16
+    memory_gb: 64
+    type: vm
+constraints:
+  affinity:
+  - name: web-group-1
+    vms:
+    - web-0401
+    - web-0402
+    - web-0403
+  - name: web-group-2
+    vms:
+    - web-0404
+    - web-0405
+    - web-0406
+  - name: web-group-3
+    vms:
+    - web-0407
+    - web-0408
+    - web-0409
+  anti_affinity:
+  - name: db-spread-1
+    vms:
+    - db-0651
+    - db-0652
+    - db-0653
+  - name: db-spread-2
+    vms:
+    - db-0654
+    - db-0655
+    - db-0656
+  - name: db-spread-3
+    vms:
+    - db-0657
+    - db-0658
+    - db-0659
+  - name: db-spread-4
+    vms:
+    - db-0660
+    - db-0661
+    - db-0662
+  - name: db-spread-5
+    vms:
+    - db-0663
+    - db-0664
+    - db-0665
+  - name: db-spread-6
+    vms:
+    - db-0666
+    - db-0667
+    - db-0668
+  - name: db-spread-7
+    vms:
+    - db-0669
+    - db-0670
+    - db-0671
+  - name: db-spread-8
+    vms:
+    - db-0672
+    - db-0673
+    - db-0674
+  - name: db-spread-9
+    vms:
+    - db-0675
+    - db-0676
+    - db-0677
+  - name: db-spread-10
+    vms:
+    - db-0678
+    - db-0679
+    - db-0680
+  - name: db-spread-11
+    vms:
+    - db-0681
+    - db-0682
+    - db-0683
+  - name: db-spread-12
+    vms:
+    - db-0684
+    - db-0685
+    - db-0686
+  - name: db-spread-13
+    vms:
+    - db-0687
+    - db-0688
+    - db-0689
+  - name: db-spread-14
+    vms:
+    - db-0690
+    - db-0691
+    - db-0692
+  - name: db-spread-15
+    vms:
+    - db-0693
+    - db-0694
+    - db-0695
+  - name: db-spread-16
+    vms:
+    - db-0696
+    - db-0697
+    - db-0698
+  - name: db-spread-17
+    vms:
+    - db-0699
+    - db-0700
+  pin:
+  - vm: bigdata-0731
+    nodes: &id001
+    - pve-01
+    - pve-02
+    - pve-03
+    - pve-04
+    - pve-05
+    - pve-06
+    - pve-07
+    - pve-08
+    - pve-09
+    - pve-10
+  - vm: bigdata-0732
+    nodes: *id001
+  - vm: bigdata-0733
+    nodes: *id001
+  - vm: bigdata-0734
+    nodes: *id001
+  - vm: bigdata-0735
+    nodes: *id001
+  ignore:
+  - micro-0001
+  - micro-0002
+  - micro-0003
+  - micro-0004
+  - micro-0005
+expect:
+  feasible: true
+  constraints_satisfied: true
+  spread_improved: true

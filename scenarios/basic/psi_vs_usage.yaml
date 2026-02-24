@@ -1,0 +1,25 @@
+name: "PSI vs Usage — Contention wins"
+description: >
+  vm-usage has high CPU use (80%) but low stall (2%).
+  vm-pressure has lower CPU use (20%) but high stall (15%) due to contention.
+  When method=cpu_psi is used, the solver must move vm-pressure to balance contention.
+
+balancing:
+  method: cpu_psi
+  balanciness: 5
+
+nodes:
+  node-A: {cpu_total: 10, memory_total_gb: 64, cpu_pressure: 17.0}
+  node-B: {cpu_total: 10, memory_total_gb: 64, cpu_pressure: 0.0}
+
+vms:
+  vm-usage: {node: node-A, cpu: 1, memory_gb: 4, cpu_usage: 8.0, cpu_pressure: 2.0}
+  vm-pressure: {node: node-A, cpu: 1, memory_gb: 4, cpu_usage: 2.0, cpu_pressure: 15.0}
+  vm-idle: {node: node-B, cpu: 1, memory_gb: 4, cpu_usage: 0.0, cpu_pressure: 0.0}
+
+expect:
+  feasible: true
+  spread_improved: true
+  max_migrations: 1
+  placements:
+    vm-pressure: node-B

@@ -62,6 +62,10 @@ class Balancing:
     w_stickiness: int | None = None  # override; derived from balanciness if None
     w_cpu_usage: int = 1  # weighting factor for usage in cpu_smart mode
     w_cpu_psi: int = 1    # weighting factor for PSI in cpu_smart mode
+    w_mem_usage: int = 1  # weighting factor for usage in memory_smart mode
+    w_mem_psi: int = 1    # weighting factor for PSI in memory_smart mode
+    w_io_usage: int = 1   # weighting factor for usage in io_smart mode
+    w_io_psi: int = 1     # weighting factor for PSI in io_smart mode
 
 
 @dataclass(frozen=True)

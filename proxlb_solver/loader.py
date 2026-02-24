@@ -36,6 +36,10 @@ def load_scenario(path: str | Path) -> Cluster:
         w_stickiness=balancing_data.get("w_stickiness"),
         w_cpu_usage=balancing_data.get("w_cpu_usage", 1),
         w_cpu_psi=balancing_data.get("w_cpu_psi", 1),
+        w_mem_usage=balancing_data.get("w_mem_usage", 1),
+        w_mem_psi=balancing_data.get("w_mem_psi", 1),
+        w_io_usage=balancing_data.get("w_io_usage", 1),
+        w_io_psi=balancing_data.get("w_io_psi", 1),
     )
 
     nodes = []

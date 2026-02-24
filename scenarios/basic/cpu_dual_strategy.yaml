@@ -1,0 +1,46 @@
+name: "CPU Dual Strategy — Cores vs Load"
+description: >
+  Tests that configured vCPUs act as a hard limit while CPU usage is used
+  for balancing. node-A has two 12-vCPU VMs, exceeding the 16-core physical limit.
+  One MUST move to node-B, even though node-B's VM has higher actual load.
+
+balancing:
+  method: cpu
+  balanciness: 5
+  cpu_overcommit: 1.0
+
+nodes:
+  node-A: {cpu_total: 16, memory_total_gb: 64}
+  node-B: {cpu_total: 16, memory_total_gb: 64}
+
+vms:
+  vm-1:
+    node: node-A
+    cpu: 12
+    memory_gb: 8
+    cpu_usage: 1.0
+  vm-2:
+    node: node-A
+    cpu: 12
+    memory_gb: 8
+    cpu_usage: 1.0
+  vm-3:
+    node: node-B
+    cpu: 2
+    memory_gb: 8
+    cpu_usage: 2.0
+
+constraints:
+  pin:
+    - vm: vm-1
+      nodes: [node-A]
+
+expect:
+  feasible: true
+  constraints_satisfied: true
+  max_migrations: 1
+  placements:
+    vm-1: node-A
+    vm-2: node-B
+
+

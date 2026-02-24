@@ -1,0 +1,27 @@
+name: "Affinity vs Anti-Affinity Conflict"
+description: >
+  vm-1 and vm-2 are in an affinity group (must be together) but also
+  in an anti-affinity group (must be separate). Logical contradiction.
+
+balancing:
+  method: memory
+  balanciness: 3
+
+nodes:
+  node-A: {cpu_total: 16, memory_total_gb: 64}
+  node-B: {cpu_total: 16, memory_total_gb: 64}
+
+vms:
+  vm-1: {node: node-A, cpu: 2, memory_gb: 8}
+  vm-2: {node: node-B, cpu: 2, memory_gb: 8}
+
+constraints:
+  affinity:
+    - name: group-A
+      vms: [vm-1, vm-2]
+  anti_affinity:
+    - name: spread-A
+      vms: [vm-1, vm-2]
+
+expect:
+  feasible: false
