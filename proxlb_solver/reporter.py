@@ -601,8 +601,9 @@ def write_markdown_report(
     total = len(results)
     all_checks: list[tuple[str, str, bool, str]] = []
     scenario_checks: list[tuple[str, list[tuple[str, str, bool, str]]]] = []
-    for _, cluster, solution in results:
-        checks = _check_expectations(cluster, solution)
+    for scenario_path, cluster, solution in results:
+        plan = migration_plans.get(scenario_path) if migration_plans else None
+        checks = _check_expectations(cluster, solution, plan)
         all_checks.extend(checks)
         scenario_checks.append((cluster.name, checks))
 
@@ -816,7 +817,8 @@ def write_markdown_report(
     )
     lines.append("|----------|----------|------------|----------|--------|")
     for scenario_path, cluster, solution in results:
-        checks = _check_expectations(cluster, solution)
+        plan = migration_plans.get(scenario_path) if migration_plans else None
+        checks = _check_expectations(cluster, solution, plan)
         all_ok = all(p for _, _, p, _ in checks)
         icon = "\u2705" if all_ok else "\u274c"
         if solution.feasible:
@@ -1088,7 +1090,8 @@ def write_markdown_report(
             lines.append("")
 
         # Expectations check
-        checks = _check_expectations(cluster, solution)
+        plan = migration_plans.get(scenario_path) if migration_plans else None
+        checks = _check_expectations(cluster, solution, plan)
         lines.append("#### Expectations")
         lines.append("")
         lines.append("| Check | Expected | Result | Detail |")
@@ -1145,8 +1148,9 @@ def write_html_report(
     # Pre-compute checks
     all_checks: list[tuple[str, str, bool, str]] = []
     scenario_checks: list[tuple[str, list[tuple[str, str, bool, str]]]] = []
-    for _, cluster, solution in results:
-        checks = _check_expectations(cluster, solution)
+    for scenario_path, cluster, solution in results:
+        plan = migration_plans.get(scenario_path) if migration_plans else None
+        checks = _check_expectations(cluster, solution, plan)
         all_checks.extend(checks)
         scenario_checks.append((cluster.name, checks))
 
@@ -1248,9 +1252,10 @@ a.anchor:hover{text-decoration:underline}
     h.append('<li><a href="#parameters">Parameter Reference</a></li>')
     h.append('<li><a href="#overview">Scenario Overview</a></li>')
     h.append('<li><a class="section">Scenarios</a></li>')
-    for _, cluster, solution in results:
+    for scenario_path, cluster, solution in results:
         slug = _slug(cluster.name)
-        checks = _check_expectations(cluster, solution)
+        plan = migration_plans.get(scenario_path) if migration_plans else None
+        checks = _check_expectations(cluster, solution, plan)
         ok = all(p for _, _, p, _ in checks)
         badge_cls = "badge-pass" if ok else "badge-fail"
         badge_txt = "PASS" if ok else "FAIL"
@@ -1491,7 +1496,8 @@ a.anchor:hover{text-decoration:underline}
     )
     for scenario_path, cluster, solution in results:
         slug = _slug(cluster.name)
-        checks = _check_expectations(cluster, solution)
+        plan = migration_plans.get(scenario_path) if migration_plans else None
+        checks = _check_expectations(cluster, solution, plan)
         ok = all(p for _, _, p, _ in checks)
         badge = (
             '<span class="badge-inline badge-ok">PASS</span>' if ok
@@ -1846,7 +1852,8 @@ a.anchor:hover{text-decoration:underline}
             h.append("</table>")
 
         # Expectations
-        checks = _check_expectations(cluster, solution)
+        plan = migration_plans.get(scenario_path) if migration_plans else None
+        checks = _check_expectations(cluster, solution, plan)
         h.append("<h4>Expectations</h4>")
         h.append("<table><tr><th>Check</th><th>Expected</th>"
                  "<th>Result</th><th>Detail</th></tr>")

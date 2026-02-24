@@ -71,7 +71,7 @@ def main() -> None:
 
         # Evaluate errors for JUnit
         from .reporter import _check_expectations
-        checks = _check_expectations(cluster, solution)
+        checks = _check_expectations(cluster, solution, mig_plan)
         errors = [
             "%s: %s" % (name, detail)
             for name, _, passed, detail in checks if not passed
