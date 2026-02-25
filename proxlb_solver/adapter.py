@@ -1,4 +1,10 @@
-"""Adapter to convert ProxLB internal data structures to Solver models."""
+"""
+Adapter to convert ProxLB internal data structures to Solver models.
+
+This module provides the 'bridge' from the existing ProxLB code base 
+to the new CP-SAT solver. It translates the nested dictionary structure 
+(proxlb_data) into the strictly typed Cluster, Node, and VM objects.
+"""
 
 from __future__ import annotations
 from typing import Dict, Any, List, Set
@@ -7,23 +13,30 @@ from .models import Cluster, Node, VM, Constraints, Balancing, Expect
 
 def from_proxlb_data(proxlb_data: Dict[str, Any]) -> Cluster:
     """
-    Convert the 'proxlb_data' dictionary from ProxLB into a Cluster model.
+    Main conversion function. 
+    
+    Expects a dictionary with 'meta', 'nodes', 'guests', 'pools', 
+    'ha_rules', and 'groups' keys.
     """
     meta = proxlb_data.get("meta", {})
     balancing_cfg = meta.get("balancing", {})
     
-    # 1. Map Balancing settings
+    # 1. Map Balancing Configuration
     balancing = Balancing(
         method=balancing_cfg.get("method", "memory"),
         balanciness=balancing_cfg.get("balanciness", 3),
         cpu_overcommit=balancing_cfg.get("cpu_overcommit", 2.0),
+        # Default safety margins for ProxLB
+        max_node_inflow=balancing_cfg.get("max_node_inflow", 1),
+        max_parallel_migrations=balancing_cfg.get("max_parallel_migrations")
     )
 
     # 2. Map Nodes
     nodes = []
     for name, nd in proxlb_data.get("nodes", {}).items():
-        # Map generic disk_free to 'local' for simulation stability
+        # Mapping generic disk_free to a 'local' pool for simulation stability
         storage_free = {"local": nd.get("disk_free", 0)}
+        
         nodes.append(Node(
             name=name,
             cpu_total=nd.get("cpu_total", 0),
@@ -35,7 +48,7 @@ def from_proxlb_data(proxlb_data: Dict[str, Any]) -> Cluster:
             maintenance=nd.get("maintenance", False)
         ))
 
-    # 3. Map VMs and extract implicit constraints
+    # 3. Map Guests (VMs/Containers) and extract implicit constraints
     vms = []
     affinity_map = defaultdict(list)
     anti_affinity_map = defaultdict(list)
@@ -52,40 +65,34 @@ def from_proxlb_data(proxlb_data: Dict[str, Any]) -> Cluster:
             cpu_pressure=gd.get("cpu_pressure_some_percent", 0.0),
             memory_pressure=gd.get("memory_pressure_some_percent", 0.0),
             io_pressure=gd.get("disk_pressure_some_percent", 0.0),
-            disks={}, # Skip disks for now to avoid false INFEASIBLE in simulation
+            disks={}, # We skip specific disk pools in simulation for now
+            priority=gd.get("priority", 2),
             vm_type=gd.get("type", "vm")
         ))
 
-        # Collect affinity group memberships
-        for group in gd.get("affinity_groups", []):
-            affinity_map[group].append(name)
-        
-        # Collect anti-affinity group memberships
-        for group in gd.get("anti_affinity_groups", []):
-            anti_affinity_map[group].append(name)
+        # Map group memberships
+        for group in gd.get("affinity_groups", []): affinity_map[group].append(name)
+        for group in gd.get("anti_affinity_groups", []): anti_affinity_map[group].append(name)
             
-        # Pinning
+        # Map explicit pins
         if gd.get("node_relationships"):
-            pin_rules.append({
-                "vm": name,
-                "nodes": gd["node_relationships"]
-            })
+            pin_rules.append({"vm": name, "nodes": gd["node_relationships"]})
             
-        # Ignore
-        if gd.get("ignore"):
-            ignore_list.append(name)
+        # Map ignore flags
+        if gd.get("ignore"): ignore_list.append(name)
 
-    # 4. Construct Constraints object
+    # 4. Filter and build Constraints object
+    # Only keep groups with more than 1 member
     constraints = Constraints(
-        affinity=[{"name": k, "vms": v} for k, v in affinity_map.items() if len(v) > 1],
-        anti_affinity=[{"name": k, "vms": v} for k, v in anti_affinity_map.items() if len(v) > 1],
+        affinity=[{"name": k, "vms": v, "hard": True} for k, v in affinity_map.items() if len(v) > 1],
+        anti_affinity=[{"name": k, "vms": v, "hard": True} for k, v in anti_affinity_map.items() if len(v) > 1],
         pin=pin_rules,
         ignore=ignore_list
     )
 
     return Cluster(
         name=meta.get("cluster_name", "Live Cluster"),
-        description="Simulated from live Proxmox data",
+        description="Auto-generated from ProxLB live data",
         balancing=balancing,
         nodes=nodes,
         vms=vms,

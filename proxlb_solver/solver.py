@@ -1,23 +1,33 @@
-"""CP-SAT based VM placement solver."""
+"""
+CP-SAT based VM placement solver.
+
+This module translates the cluster state into a mathematical optimization 
+problem using Google OR-Tools CP-SAT. 
+
+IMPORTANT CONCEPT:
+CP-SAT is an integer solver. It doesn't handle floats (like 0.5 cores or 12.5% PSI).
+To overcome this, we scale all percentages and fractional values by _LOAD_SCALE 
+(10,000). 
+- 100% becomes 10,000.
+- 0.5% becomes 50.
+- 1.0 cores becomes 10,000 (when using usage metrics).
+"""
 
 from __future__ import annotations
-
 import time
-
+import dataclasses
 from ortools.sat.python import cp_model
 
 from .models import Balancing, Cluster, Migration, Solution, SolverStats, MigrationPlan
 from .planner import plan_migrations
 from .validator import validate_and_merge_constraints, RuleConflictError
 
-# Scale RAM to MB for integer arithmetic
+# Scale factors for integer arithmetic
 _MB = 1024 * 1024
-# Scale load percentages ×10000 for integer precision
 _LOAD_SCALE = 10000
-# Penalty for violating a soft constraint
-_SOFT_PENALTY = 1000000
+_SOFT_PENALTY = 1000000 # Cost for violating one soft constraint
 
-# VMware DRS-style balanciness profiles
+# VMware DRS-style balanciness profiles: (w_balance, w_stickiness, threshold)
 _BALANCINESS_PROFILES = {
     1: (0, 1, 1.0),       # Conservative
     2: (1, 50, 0.25),     # Low
@@ -28,7 +38,7 @@ _BALANCINESS_PROFILES = {
 
 
 def _initial_load_gap_single(cluster: Cluster, method: str) -> float:
-    """Helper to calculate initial gap for a specific smart or base method, considering VM priority."""
+    """Helper to calculate initial gap for a specific resource type, considering priorities."""
     bal = cluster.balancing
     usage_loads = []
     psi_loads = []
@@ -87,6 +97,7 @@ def _initial_load_gap(cluster: Cluster) -> float:
 
 
 def _resolve_balancing(bal: Balancing, current_gap: float) -> tuple[int, int]:
+    """Resolve effective (w_balance, w_stickiness) from balanciness."""
     level = max(1, min(5, bal.balanciness))
     prof_wb, prof_ws, threshold = _BALANCINESS_PROFILES[level]
     w_b = bal.w_balance if bal.w_balance is not None else prof_wb
@@ -96,6 +107,7 @@ def _resolve_balancing(bal: Balancing, current_gap: float) -> tuple[int, int]:
 
 
 def _find_blocking_vms(cluster: Cluster, time_limit_s: float) -> list[str]:
+    """Identify VMs that prevent evacuation of the target node."""
     evac_node = cluster.evacuate_node
     if not evac_node: return []
     nodes, vms, bal, cons = cluster.nodes, cluster.vms, cluster.balancing, cluster.constraints
@@ -122,10 +134,13 @@ def _find_blocking_vms(cluster: Cluster, time_limit_s: float) -> list[str]:
 
 
 def solve(cluster: Cluster, time_limit_s: float = 30.0, forbidden_placements: list[dict[str, str]] | None = None) -> Solution:
+    """Solve VM placement using CP-SAT."""
     try: validate_and_merge_constraints(cluster)
     except RuleConflictError as e: return Solution(False, {}, [], SolverStats(f"RULE_CONFLICT: {str(e)}", 0, 0.0, 0, 0))
     model = cp_model.CpModel()
     nodes, vms, bal, cons = cluster.nodes, cluster.vms, cluster.balancing, cluster.constraints
+    current_gap = _initial_load_gap(cluster)
+    eff_wb, eff_ws = _resolve_balancing(bal, current_gap)
     node_idx = {n.name: i for i, n in enumerate(nodes)}
     vm_idx = {v.name: i for i, v in enumerate(vms)}
     x = [[model.new_bool_var(f"x_{v.name}_{n.name}") for n in nodes] for v in vms]
@@ -185,17 +200,15 @@ def solve(cluster: Cluster, time_limit_s: float = 30.0, forbidden_placements: li
     # ── Objective ──
     method = bal.method
     max_load_val = _LOAD_SCALE * 15
+    load_vars = []
     
     def add_smart_gap(m_type):
         u_vars, p_vars = [], []
         for j, node in enumerate(nodes):
             if node.maintenance: continue
-            if m_type == "cpu":
-                cap, used = max(1, node.cpu_total - node.cpu_reserve), sum(int(vms[i].cpu_usage * vms[i].priority * _LOAD_SCALE) * x[i][j] for i in range(len(vms)))
-            elif m_type == "memory":
-                cap, used = max(1, (node.memory_total - node.memory_reserve) // _MB), sum((vms[i].memory * vms[i].priority // _MB) * _LOAD_SCALE * x[i][j] for i in range(len(vms)))
-            else: # io
-                cap, used = max(1, sum(node.storage_free.values()) // _MB), sum((sum(vms[i].disks.values()) * vms[i].priority // _MB) * _LOAD_SCALE * x[i][j] for i in range(len(vms)))
+            if m_type == "cpu": cap, used = max(1, node.cpu_total - node.cpu_reserve), sum(int(vms[i].cpu_usage * vms[i].priority * _LOAD_SCALE) * x[i][j] for i in range(len(vms)))
+            elif m_type == "memory": cap, used = max(1, (node.memory_total - node.memory_reserve) // _MB), sum((vms[i].memory * vms[i].priority // _MB) * _LOAD_SCALE * x[i][j] for i in range(len(vms)))
+            else: cap, used = max(1, sum(node.storage_free.values()) // _MB), sum((sum(vms[i].disks.values()) * vms[i].priority // _MB) * _LOAD_SCALE * x[i][j] for i in range(len(vms)))
             uv = model.new_int_var(0, max_load_val, f"u_{m_type}_{node.name}")
             model.add_division_equality(uv, used, model.new_constant(cap)), u_vars.append(uv)
             p_sum = sum(int((vms[i].cpu_pressure if m_type == "cpu" else vms[i].memory_pressure if m_type == "memory" else vms[i].io_pressure) * vms[i].priority * _LOAD_SCALE) * x[i][j] for i in range(len(vms)))
@@ -227,7 +240,6 @@ def solve(cluster: Cluster, time_limit_s: float = 30.0, forbidden_placements: li
         load_gap = model.new_int_var(0, 10 * max_load_val, "smart_gap")
         model.add(load_gap == w_u * ug + w_p * pg)
     else:
-        lvars = []
         for j, node in enumerate(nodes):
             if node.maintenance: continue
             if method == "cpu": cap, used = max(1, node.cpu_total - node.cpu_reserve), sum(int(vms[i].cpu_usage * vms[i].priority * _LOAD_SCALE) * x[i][j] for i in range(len(vms)))
@@ -235,11 +247,11 @@ def solve(cluster: Cluster, time_limit_s: float = 30.0, forbidden_placements: li
                 cap, used = 100, sum(int((vms[i].cpu_pressure if method == "cpu_psi" else vms[i].memory_pressure if method == "memory_psi" else vms[i].io_pressure) * vms[i].priority * _LOAD_SCALE) * x[i][j] for i in range(len(vms)))
             else: cap, used = max(1, (node.memory_total - node.memory_reserve) // _MB), sum((vms[i].memory * vms[i].priority // _MB) * _LOAD_SCALE * x[i][j] for i in range(len(vms)))
             lv = model.new_int_var(0, max_load_val, f"l_{node.name}")
-            model.add_division_equality(lv, used, model.new_constant(cap)), lvars.append(lv)
+            model.add_division_equality(lv, used, model.new_constant(cap)), load_vars.append(lv)
         load_gap = model.new_int_var(0, max_load_val, "gap")
-        if lvars:
+        if load_vars:
             mx, mn = model.new_int_var(0, max_load_val, "mx"), model.new_int_var(0, max_load_val, "mn")
-            model.add_max_equality(mx, lvars), model.add_min_equality(mn, lvars), model.add(load_gap == mx - mn)
+            model.add_max_equality(mx, load_vars), model.add_min_equality(mn, load_vars), model.add(load_gap == mx - mn)
         else: model.add(load_gap == 0)
 
     mig_count_list = []
@@ -255,8 +267,6 @@ def solve(cluster: Cluster, time_limit_s: float = 30.0, forbidden_placements: li
     if soft_penalties: model.add(penalty_total == sum(soft_penalties) * _SOFT_PENALTY)
     else: model.add(penalty_total == 0)
 
-    current_gap = _initial_load_gap(cluster)
-    eff_wb, eff_ws = _resolve_balancing(bal, current_gap)
     model.minimize(eff_wb * load_gap + eff_ws * migration_count + penalty_total)
     
     solver = cp_model.CpSolver()
@@ -272,7 +282,6 @@ def solve(cluster: Cluster, time_limit_s: float = 30.0, forbidden_placements: li
 
 
 def solve_reachable(cluster: Cluster, total_time_limit_s: float = 60.0, max_retries: int = 10, quiet: bool = True) -> tuple[Solution, MigrationPlan]:
-    import dataclasses
     forbidden, last_sol, last_plan, start = [], None, None, time.monotonic()
     for attempt in range(max_retries + 1):
         rem = total_time_limit_s - (time.monotonic() - start)
@@ -284,8 +293,7 @@ def solve_reachable(cluster: Cluster, total_time_limit_s: float = 60.0, max_retr
             return sol, plan_migrations(cluster, sol)
         plan = plan_migrations(cluster, sol)
         last_sol, last_plan = sol, plan
-        if plan.path_feasible:
-            return dataclasses.replace(sol, reachability_attempts=attempt + 1), plan
+        if plan.path_feasible: return dataclasses.replace(sol, reachability_attempts=attempt + 1), plan
         if not plan.unbreakable_cycle: break
         forbidden.append({vm: sol.placements[vm] for vm in plan.unbreakable_cycle if vm in sol.placements})
         if not quiet: print(f"  [solve_reachable] Attempt {attempt+1}: Cycle {plan.unbreakable_cycle}. Retrying...")

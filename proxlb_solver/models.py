@@ -1,93 +1,126 @@
-"""Data models for the ProxLB CP-SAT solver."""
+"""
+Data models for the ProxLB CP-SAT solver.
+
+This module defines the objects used to represent the cluster state, 
+user constraints, and the resulting migration plans. 
+
+Units used throughout the project:
+- Memory: Bytes (int)
+- Storage: Bytes (int) 
+- CPU Load: Float (0.0 to N.0, where 1.0 is 100% of one core)
+- PSI Pressure: Float (0.0 to 100.0, representing percentage of stall time)
+"""
 
 from __future__ import annotations
-
 from dataclasses import dataclass, field
 
 
 @dataclass(frozen=True)
 class Node:
+    """Represents a physical Proxmox host."""
     name: str
-    cpu_total: int
-    memory_total: int  # bytes
-    storage_free: dict[str, int] = field(default_factory=dict)  # name -> free bytes
-    cpu_reserve: int = 0  # cores
-    memory_reserve: int = 0  # bytes
-    storage_reserve: dict[str, int] = field(default_factory=dict)  # name -> bytes
-    cpu_pressure: float = 0.0  # PSI 'some' percentage
+    cpu_total: int        # Number of physical CPU cores
+    memory_total: int     # Total RAM in bytes
+    
+    # Storage capacities: Maps storage name (e.g. 'local-lvm') to free bytes
+    storage_free: dict[str, int] = field(default_factory=dict)
+    
+    # Host Reservations: Resources set aside for the hypervisor/OS
+    cpu_reserve: int = 0
+    memory_reserve: int = 0
+    storage_reserve: dict[str, int] = field(default_factory=dict)
+    
+    # Real-time metrics (Pressure Stall Information)
+    cpu_pressure: float = 0.0
     memory_pressure: float = 0.0
     io_pressure: float = 0.0
-    maintenance: bool = False
+    
+    maintenance: bool = False # If True, no VMs can reside here
 
 
 @dataclass(frozen=True)
 class VM:
+    """Represents a Virtual Machine or LXC Container."""
     name: str
-    node: str  # current placement
-    cpu: int   # configured vCPUs (cores)
-    memory: int  # bytes
-    cpu_usage: float = 0.0  # actual load (e.g. 0.5 for 50% of 1 core)
-    cpu_pressure: float = 0.0  # PSI 'some' percentage
+    node: str             # Current host name
+    cpu: int              # Configured vCPUs (cores)
+    memory: int           # Configured RAM in bytes
+    
+    # Actual resource footprints
+    cpu_usage: float = 0.0    # Actual CPU load (e.g. 0.5 = 50% of one core)
+    cpu_pressure: float = 0.0 # CPU stall time percentage
     memory_pressure: float = 0.0
     io_pressure: float = 0.0
-    disks: dict[str, int] = field(default_factory=dict)  # name -> required bytes
-    priority: int = 2  # 1=Low, 2=Normal, 3=High
-    vm_type: str = "vm"  # "vm" or "ct"
+    
+    # Storage requirements: Maps storage name to required bytes
+    disks: dict[str, int] = field(default_factory=dict)
+    
+    # Priority: Used to weight the importance of this VM during balancing
+    # 1 = Low, 2 = Normal (default), 3 = High
+    priority: int = 2
+    
+    vm_type: str = "vm"   # "vm" or "ct"
 
 
 @dataclass(frozen=True)
 class Constraints:
+    """Container for placement rules."""
+    # List of rules like {'name': 'group1', 'vms': ['vm1', 'vm2'], 'hard': True}
     affinity: list[dict] = field(default_factory=list)
     anti_affinity: list[dict] = field(default_factory=list)
+    
+    # List of pins like {'vm': 'vm1', 'nodes': ['nodeA', 'nodeB']}
     pin: list[dict] = field(default_factory=list)
+    
+    # List of VM names that the solver should never move
     ignore: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
-class Expect:
-    feasible: bool = True
-    constraints_satisfied: bool = True
-    spread_improved: bool | None = None
-    max_migrations: int | None = None
-    placements: dict[str, str] = field(default_factory=dict)
-    node_empty: str | None = None  # assert this node has 0 VMs after solve
-    path_feasible: bool | None = None  # None = don't check; True/False = assert
-
-
-@dataclass(frozen=True)
 class Balancing:
-    method: str = "memory"
-    balanciness: int = 3  # 1-5, VMware DRS-style aggressiveness
-    cpu_overcommit: float = 2.0
-    w_balance: int | None = None  # override; derived from balanciness if None
-    w_stickiness: int | None = None  # override; derived from balanciness if None
-    w_cpu_usage: int = 1  # weighting factor for usage in cpu_smart mode
-    w_cpu_psi: int = 1    # weighting factor for PSI in cpu_smart mode
-    w_mem_usage: int = 1  # weighting factor for usage in memory_smart mode
-    w_mem_psi: int = 1    # weighting factor for PSI in memory_smart mode
-    w_io_usage: int = 1   # weighting factor for usage in io_smart mode
-    w_io_psi: int = 1     # weighting factor for PSI in io_smart mode
-    w_global_mem: int = 10 # Importance of RAM in global_smart mode
-    w_global_cpu: int = 10 # Importance of CPU in global_smart mode
-    w_global_io: int = 1   # Importance of IO in global_smart mode
-    max_parallel_migrations: int | None = None # Global limit
-    max_node_inflow: int = 1 # Max VMs migrating TO a node at once
+    """Configuration for the balancing algorithm."""
+    method: str = "memory" # Balancing metric: memory, cpu, cpu_smart, global_smart, etc.
+    balanciness: int = 3   # Aggressiveness level (1-5), similar to VMware DRS
+    cpu_overcommit: float = 2.0 # Allowed vCPU-to-Core ratio
+    
+    # Optional weight overrides (usually derived from balanciness)
+    w_balance: int | None = None
+    w_stickiness: int | None = None
+
+    # Weights for the 'smart' modes (relative importance)
+    w_cpu_usage: int = 1
+    w_cpu_psi: int = 1
+    w_mem_usage: int = 1
+    w_mem_psi: int = 1
+    w_io_usage: int = 1
+    w_io_psi: int = 1
+    
+    # Weights for 'global_smart' (importance of resource pools against each other)
+    w_global_mem: int = 10
+    w_global_cpu: int = 10
+    w_global_io: int = 1
+    
+    # Ops-Safety Limits
+    max_parallel_migrations: int | None = None # Overall limit for the cluster
+    max_node_inflow: int = 1 # Max VMs that can migrate TO a node in one step
 
 
 @dataclass(frozen=True)
 class Cluster:
+    """The complete state of the cluster to be optimized."""
     name: str
     description: str
     balancing: Balancing
     nodes: list[Node]
     vms: list[VM]
     constraints: Constraints
-    expect: Expect
-    evacuate_node: str | None = None  # node to evacuate (drain all VMs)
+    expect: Expect # Used for testing automated scenarios
+    evacuate_node: str | None = None # Optional: Node name to clear completely
 
 
 @dataclass(frozen=True)
 class Migration:
+    """A single VM movement."""
     vm: str
     source: str
     target: str
@@ -95,35 +128,51 @@ class Migration:
 
 @dataclass(frozen=True)
 class MigrationStep:
-    step: int                    # 1-based step number
-    migrations: list[Migration]  # migrations executable in this step
-    parallel: bool               # True if >1 migration can run concurrently
+    """A set of migrations that can be executed concurrently."""
+    step: int
+    migrations: list[Migration]
+    parallel: bool # True if step contains more than 1 migration
 
 
 @dataclass(frozen=True)
 class MigrationPlan:
+    """The result of the planner: an ordered sequence of executable steps."""
     steps: list[MigrationStep]
-    dependency_edges: list[tuple[str, str]]  # (vm_a, vm_b) = "a waits for b"
-    temp_moves: list[str]                     # VMs that need a temp move
-    path_feasible: bool = True                # False if cycles can't be broken
-    unbreakable_cycle: list[str] = field(default_factory=list)  # VMs in unbreakable cycle
+    dependency_edges: list[tuple[str, str]] # Info about why VM A waits for VM B
+    temp_moves: list[str]                   # VMs that need an intermediate hop
+    path_feasible: bool = True              # False if a deadlock/cycle is unbreakable
+    unbreakable_cycle: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
 class SolverStats:
-    status: str
-    objective: int
-    load_gap: float
+    """Meta-information about the solver execution."""
+    status: str        # e.g. "OPTIMAL", "INFEASIBLE"
+    objective: int     # Internal math score (lower is better)
+    load_gap: float    # The calculated gap (Max node load - Min node load)
     migration_count: int
     wall_time_ms: float
 
 
 @dataclass(frozen=True)
 class Solution:
+    """The resulting target state found by the solver."""
     feasible: bool
-    placements: dict[str, str]  # vm_name -> node_name
+    placements: dict[str, str] # vm_name -> node_name
     migrations: list[Migration]
     stats: SolverStats
-    blocking_vms: list[str] = field(default_factory=list)  # VMs preventing evacuation
-    path_feasible: bool = True  # False if feedback loop failed to find executable path
-    reachability_attempts: int = 1  # how many solve_reachable iterations
+    blocking_vms: list[str] = field(default_factory=list) # VMs preventing node evacuation
+    path_feasible: bool = True # False if the planner couldn't find a way to get there
+    reachability_attempts: int = 1 # How many times we retried solver vs planner
+
+
+@dataclass(frozen=True)
+class Expect:
+    """Used in YAML scenarios to define what the result SHOULD look like."""
+    feasible: bool = True
+    constraints_satisfied: bool = True
+    spread_improved: bool | None = None
+    max_migrations: int | None = None
+    placements: dict[str, str] = field(default_factory=dict)
+    node_empty: str | None = None
+    path_feasible: bool | None = None
