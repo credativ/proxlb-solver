@@ -730,15 +730,17 @@ a:hover { text-decoration: underline; }
                 h.append("<h4>Execution Plan</h4>")
                 h.append("<table><tr><th>Step</th><th>VM</th><th>From</th><th>To</th><th>Parallel</th><th>Type</th></tr>")
                 for step in plan.steps:
-                    first = True
                     step_type = "atomic group" if _step_is_pve_atomic(step, cluster) else "individual"
-                    for m in step.migrations:
-                        step_cell = f'{step.step}' if first else ""
-                        par_cell = ("Yes" if step.parallel else "No") if first else ""
-                        type_cell = step_type if first else ""
-                        h.append(f'<tr><td>{step_cell}</td><td>{m.vm}</td>'
-                                 f'<td>{m.source}</td><td>{m.target}</td><td>{par_cell}</td><td>{type_cell}</td></tr>')
-                        first = False
+                    par = "Yes" if step.parallel else "No"
+                    n = len(step.migrations)
+                    for i, m in enumerate(step.migrations):
+                        if i == 0:
+                            h.append(f'<tr><td rowspan="{n}">{step.step}</td><td>{m.vm}</td>'
+                                     f'<td>{m.source}</td><td>{m.target}</td>'
+                                     f'<td rowspan="{n}">{par}</td>'
+                                     f'<td rowspan="{n}">{step_type}</td></tr>')
+                        else:
+                            h.append(f'<tr><td>{m.vm}</td><td>{m.source}</td><td>{m.target}</td></tr>')
                 h.append("</table>")
                 if plan.temp_moves:
                     h.append(f'<p class="warn">Temp moves: {", ".join(plan.temp_moves)}</p>')
