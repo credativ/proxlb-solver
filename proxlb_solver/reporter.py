@@ -714,29 +714,33 @@ a:hover { text-decoration: underline; }
     h.append(f'<div class="stat"><div class="num">{total_checks - all_failed_count}/{total_checks}</div><div class="label">Checks OK</div></div>')
     h.append("</div></div>")
 
-    # Overview table
+    # Overview table — grouped by category
     h.append('<div id="overview">')
     h.append("<h2>Scenario Overview</h2>")
-    h.append("<table><tr><th>Scenario</th><th>Feasible</th><th>Migrations</th>"
-             "<th>Load Gap</th><th>Steps</th><th>Result</th></tr>")
-    for scenario_path, cluster, solution, plan, checks, ok in sc_data:
-        slug = _slug(cluster.name)
-        badge = f'<span class="tag tag-pass">PASS</span>' if ok else '<span class="tag tag-fail">FAIL</span>'
-        if solution.feasible:
-            initial = _initial_load_gap(cluster)
-            final = _compute_load_gap(cluster, solution.placements)
-            steps = len(plan.steps) if plan else "—"
-            if not solution.path_feasible:
-                feas_cell = '<td class="warn">\u26a0\ufe0f UNREACHABLE</td>'
+    for cat, entries in groups.items():
+        cat_label = cat.replace("_", " ").title()
+        h.append(f'<h3>{cat_label}</h3>')
+        h.append("<table><tr><th>Scenario</th><th>Feasible</th><th>Migrations</th>"
+                 "<th>Load Gap</th><th>Steps</th><th>Result</th></tr>")
+        for scenario_path, cluster, solution, plan, checks, ok in entries:
+            slug = _slug(cluster.name)
+            badge = f'<span class="tag tag-pass">PASS</span>' if ok else '<span class="tag tag-fail">FAIL</span>'
+            if solution.feasible:
+                initial = _initial_load_gap(cluster)
+                final = _compute_load_gap(cluster, solution.placements)
+                steps = len(plan.steps) if plan else "—"
+                if not solution.path_feasible:
+                    feas_cell = '<td class="warn">\u26a0\ufe0f UNREACHABLE</td>'
+                else:
+                    feas_cell = '<td class="ok">Yes</td>'
+                h.append(f'<tr><td><a href="#{slug}">{cluster.name}</a></td>{feas_cell}'
+                         f'<td>{solution.stats.migration_count}</td><td>{_fmt_gap(initial, final)}</td>'
+                         f'<td>{steps}</td><td>{badge}</td></tr>')
             else:
-                feas_cell = '<td class="ok">Yes</td>'
-            h.append(f'<tr><td><a href="#{slug}">{cluster.name}</a></td>{feas_cell}'
-                     f'<td>{solution.stats.migration_count}</td><td>{_fmt_gap(initial, final)}</td>'
-                     f'<td>{steps}</td><td>{badge}</td></tr>')
-        else:
-            h.append(f'<tr><td><a href="#{slug}">{cluster.name}</a></td><td class="err">No</td>'
-                     f'<td>—</td><td>—</td><td>—</td><td>{badge}</td></tr>')
-    h.append("</table></div>")
+                h.append(f'<tr><td><a href="#{slug}">{cluster.name}</a></td><td class="err">No</td>'
+                         f'<td>—</td><td>—</td><td>—</td><td>{badge}</td></tr>')
+        h.append("</table>")
+    h.append("</div>")
 
     # Detailed sections
     h.append("<h2>Detailed Results</h2>")
