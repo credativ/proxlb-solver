@@ -103,22 +103,6 @@ An optimal state is worthless if it cannot be executed (e.g., no buffer space fo
 
 ---
 
-## Live Simulation
-
-Test the solver safely against your real cluster:
-
-### Step 1: Export Cluster Data
-Run the exporter (located in `scripts/export_proxlb_data.py`) from your ProxLB directory:
-```bash
-cd path/to/ProxLB/proxlb
-python3 /path/to/proxlb-solver/scripts/export_proxlb_data.py /etc/proxlb.yaml /tmp/dump.json
-```
-
-### Step 2: Run Simulator
-```bash
-python3 -m proxlb_solver.simulate /tmp/dump.json
-```
-
 ## Features Summary
 
 - **CP-SAT optimization** — Exact solver finding provably optimal placements.
@@ -127,20 +111,42 @@ python3 -m proxlb_solver.simulate /tmp/dump.json
 - **Named Storage Support** — Respects ZFS/LVM pool capacities.
 - **Resource Reservations** — Protect host system stability.
 - **Scenario-driven testing** — 90+ YAML scenarios covering all edge cases.
+- **Rich Reports** — Interactive HTML with Mermaid graphs, Markdown, and JUnit XML.
 
 ## Usage & Development
 
 ### Installation
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -e .
+make install
 ```
 
 ### Running Tests
 ```bash
 make test
 ```
+
+### Generating Reports
+```bash
+make report
+```
+
+This produces:
+- `results.html`: Interactive report with sidebar and graphs.
+- `results.md`: Markdown summary.
+- `results.xml`: JUnit XML for CI.
+
+### Live Simulation
+Test the solver safely against your real cluster:
+
+1. **Snapshot Data**:
+   ```bash
+   cd path/to/ProxLB/proxlb
+   python3 /path/to/proxlb-solver/scripts/export_proxlb_data.py /etc/proxlb.yaml /tmp/dump.json
+   ```
+2. **Run Simulator**:
+   ```bash
+   python3 -m proxlb_solver.simulate /tmp/dump.json
+   ```
 
 ## YAML Scenario Format
 Scenarios are located in `scenarios/`. They define nodes, VMs, and expected outcomes.
