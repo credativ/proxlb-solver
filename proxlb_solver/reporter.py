@@ -186,9 +186,9 @@ def print_report(cluster: Cluster, solution: Solution):
         console.print("[green]Cluster is already balanced.[/green]")
 
     console.print(f"\n  Status: [bold green]{solution.stats.status}[/bold green]")
-    console.print(f"  Weighted Gap: {solution.stats.load_gap:.3f}")
+    console.print(f"  Weighted Gap: {solution.stats.load_gap*100:.1f}%")
     console.print(f"  Migrations: {solution.stats.migration_count}")
-    console.print(f"  Solve time: {solution.stats.wall_time_ms:.1f} ms")
+    console.print(f"  Solve time: {_fmt_time(solution.stats.wall_time_ms)}")
     if solution.reachability_attempts > 1:
         console.print(f"  [yellow]Reachability: {solution.reachability_attempts} attempts "
                       f"({'solved' if solution.path_feasible else 'FAILED'})[/yellow]")
@@ -354,6 +354,15 @@ def _fmt_bytes(b: int) -> str:
     return f"{b / _MB_FMT:.0f} MB"
 
 
+def _fmt_time(ms: float) -> str:
+    if ms >= 1000: return f"{ms / 1000:.2f} s"
+    return f"{ms:.1f} ms"
+
+
+def _fmt_gap(initial: float, final: float) -> str:
+    return f"{initial*100:.1f}% → {final*100:.1f}%"
+
+
 def _node_load_pct(cluster: Cluster, node: Node, placements: Dict[str, str]) -> float:
     """Compute load percentage for a node given placements."""
     vm_map = {v.name: v for v in cluster.vms}
@@ -408,9 +417,10 @@ def write_markdown_report(
         ok = all(p for _, _, p, _ in checks)
         icon = "\u2705" if ok else "\u274c"
         if solution.feasible:
-            gap = _compute_load_gap(cluster, solution.placements)
+            initial = _initial_load_gap(cluster)
+            final = _compute_load_gap(cluster, solution.placements)
             feasible_str = "\u26a0\ufe0f UNREACHABLE" if not solution.path_feasible else "Yes"
-            L.append(f"| {cluster.name} | {feasible_str} | {solution.stats.migration_count} | {gap:.3f} | {icon} |")
+            L.append(f"| {cluster.name} | {feasible_str} | {solution.stats.migration_count} | {_fmt_gap(initial, final)} | {icon} |")
         else:
             L.append(f"| {cluster.name} | No | — | — | {icon} |")
     L.append("")
@@ -425,7 +435,12 @@ def write_markdown_report(
             L.append(f"_{cluster.description}_")
             L.append("")
         L.append(f"- Method: `{cluster.balancing.method}` | Balanciness: {cluster.balancing.balanciness}")
-        status_line = f"- Status: **{solution.stats.status}** | Solve time: {solution.stats.wall_time_ms:.1f} ms"
+        gap_str = ""
+        if solution.feasible:
+            initial = _initial_load_gap(cluster)
+            final = _compute_load_gap(cluster, solution.placements)
+            gap_str = f" | Load Gap: {_fmt_gap(initial, final)}"
+        status_line = f"- Status: **{solution.stats.status}** | Solve time: {_fmt_time(solution.stats.wall_time_ms)}{gap_str}"
         if solution.reachability_attempts > 1:
             outcome = "resolved" if solution.path_feasible else "FAILED"
             status_line += f" | \u26a0\ufe0f Reachability: {solution.reachability_attempts} attempts ({outcome})"
@@ -674,14 +689,15 @@ a:hover { text-decoration: underline; }
         slug = _slug(cluster.name)
         badge = f'<span class="tag tag-pass">PASS</span>' if ok else '<span class="tag tag-fail">FAIL</span>'
         if solution.feasible:
-            gap = _compute_load_gap(cluster, solution.placements)
+            initial = _initial_load_gap(cluster)
+            final = _compute_load_gap(cluster, solution.placements)
             steps = len(plan.steps) if plan else "—"
             if not solution.path_feasible:
                 feas_cell = '<td class="warn">\u26a0\ufe0f UNREACHABLE</td>'
             else:
                 feas_cell = '<td class="ok">Yes</td>'
             h.append(f'<tr><td><a href="#{slug}">{cluster.name}</a></td>{feas_cell}'
-                     f'<td>{solution.stats.migration_count}</td><td>{gap:.3f}</td>'
+                     f'<td>{solution.stats.migration_count}</td><td>{_fmt_gap(initial, final)}</td>'
                      f'<td>{steps}</td><td>{badge}</td></tr>')
         else:
             h.append(f'<tr><td><a href="#{slug}">{cluster.name}</a></td><td class="err">No</td>'
@@ -704,10 +720,15 @@ a:hover { text-decoration: underline; }
             outcome = "resolved" if solution.path_feasible else "FAILED"
             retry_info = (f' | <span class="warn">\u26a0\ufe0f Reachability: '
                           f'{solution.reachability_attempts} attempts ({outcome})</span>')
+        gap_str = ""
+        if solution.feasible:
+            _i = _initial_load_gap(cluster)
+            _f = _compute_load_gap(cluster, solution.placements)
+            gap_str = f' | Load Gap: {_fmt_gap(_i, _f)}'
         h.append(f'<p class="meta">Method: <code>{cluster.balancing.method}</code> '
                  f'| Balanciness: {cluster.balancing.balanciness} '
                  f'| Status: <b>{solution.stats.status}</b> '
-                 f'| {solution.stats.wall_time_ms:.1f} ms{retry_info}</p>')
+                 f'| {_fmt_time(solution.stats.wall_time_ms)}{gap_str}{retry_info}</p>')
 
         if not solution.feasible:
             h.append(f'<p class="err"><b>INFEASIBLE</b> — {solution.stats.status}</p>')
