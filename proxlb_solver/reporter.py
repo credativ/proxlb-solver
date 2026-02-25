@@ -4,7 +4,7 @@ from __future__ import annotations
 import re
 import xml.etree.ElementTree as ET
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Any
 from .models import Cluster, Migration, Solution, VM, Node, MigrationPlan
@@ -400,7 +400,7 @@ def write_markdown_report(
 
     L.append("# ProxLB CP-SAT Solver — Test Report")
     L.append("")
-    L.append(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    L.append(f"Generated: {datetime.now(timezone.utc).astimezone().strftime('%Y-%m-%d %H:%M:%S %Z')}")
     L.append("")
     L.append(f"**{len(results)}** scenarios | **{sc_passed}/{len(results)}** passed | "
              f"**{passed}** checks OK, **{failed}** failed")
