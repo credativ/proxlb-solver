@@ -58,24 +58,10 @@ def _allowed_temp_nodes(
     if cluster.evacuate_node:
         candidates.discard(cluster.evacuate_node)
 
-    # Pin constraint — Node must be allowed for EVERY VM in the group
+    # Respect Hard Constraints even for temp moves
     for vm_name in vm_group:
         for rule in cons.pin:
-            if rule["vm"] == vm_name:
-                candidates &= set(rule["nodes"])
-
-    # Anti-affinity — temp node must not host any anti-affinity partner
-    current_node_vms: dict[str, set[str]] = defaultdict(set)
-    for v in cluster.vms:
-        current_node_vms[v.node].add(v.name)
-
-    for vm_name in vm_group:
-        for rule in cons.anti_affinity:
-            if vm_name in rule["vms"]:
-                partners = set(rule["vms"]) - vm_group
-                for node_name in list(candidates):
-                    if partners & current_node_vms.get(node_name, set()):
-                        candidates.discard(node_name)
+            if rule["vm"] == vm_name: candidates &= set(rule["nodes"])
 
     # RAM and CPU capacity check for the whole group
     group_mem = sum(v.memory for v in vms_in_group)
@@ -100,13 +86,17 @@ def plan_migrations(
     cluster: Cluster, solution: Solution,
     max_parallel: int | None = None,
 ) -> MigrationPlan:
-    """Order migrations into executable steps respecting dependencies and ops-safety."""
+    """
+    Main planning logic. Transforms a target state into a series of steps.
+    """
     if not solution.feasible or not solution.migrations:
         return MigrationPlan(steps=[], dependency_edges=[], temp_moves=[])
 
+    # 1. Gather configuration
     max_parallel = max_parallel or cluster.balancing.max_parallel_migrations
     max_inflow = cluster.balancing.max_node_inflow
 
+    # 2. Virtual State: track current usage as we 'plan' moves
     node_mem = {n.name: n.memory_total for n in cluster.nodes}
     node_used = defaultdict(int)
     node_cpu = defaultdict(int)
@@ -119,17 +109,22 @@ def plan_migrations(
     node_residents = defaultdict(set)
     for vm in cluster.vms: node_residents[vm.node].add(vm.name)
 
+    # 3. Build Initial Dependency Graph
+    # A migration is blocked if the target node doesn't have room 
+    # until someone else leaves.
     deps = defaultdict(set)
     for vm_name, mig in mig_map.items():
         vm = vm_by_name[vm_name]
         avail = node_mem.get(mig.target, 0) - node_used[mig.target]
-        if avail >= vm.memory: continue
+        if avail >= vm.memory: continue # Direct move possible
+        # Node full: wait for every VM that is migrating AWAY from target node
         for resident in node_residents[mig.target]:
             if resident in mig_map and mig_map[resident].source == mig.target:
                 deps[vm_name].add(resident)
 
     dependency_edges = [(a, b) for a in deps for b in deps[a]]
 
+    # 4. Detect Deadlocks (Cycles)
     cycle_members = set()
     visited, in_stack = set(), set()
     def _find_cycles(vm_name: str):
@@ -142,8 +137,10 @@ def plan_migrations(
 
     for vm_name in mig_map: _find_cycles(vm_name)
 
+    # 5. Break Cycles
     temp_moves, temp_migrations = [], []
     if cycle_members:
+        # Full cycle expansion: find all VMs in the deadlock chain
         all_cycle_vms = set(cycle_members)
         changed = True
         while changed:
@@ -152,6 +149,7 @@ def plan_migrations(
                 if v not in all_cycle_vms and (dset & all_cycle_vms):
                     all_cycle_vms.add(v); changed = True
 
+        # Try to break the cycle by parking one VM (or its affinity group) elsewhere
         node_used_work, node_cpu_work = defaultdict(int, node_used), defaultdict(int, node_cpu)
         cycle_broken = False
         for vm_name in sorted(all_cycle_vms):
@@ -171,33 +169,59 @@ def plan_migrations(
                 cycle_broken = True; break
         
         if not cycle_broken:
+            # Unbreakable cycle: solver state is unreachable
             return MigrationPlan([], dependency_edges, [], False, sorted(all_cycle_vms))
 
+    # 6. Step Generation (Kahn's Algorithm)
+    # We maintain current virtual capacity to decide if a migration can start.
     current_node_used = defaultdict(int, node_used)
     steps = []
     step_num = 1
+    
+    # Queue of migrations to be planned
     remaining_queue = []
     for tm in temp_migrations: remaining_queue.append((tm.source, tm.target, tm.vm, True))
     for vm_name, m in mig_map.items():
         if vm_name not in temp_moves: remaining_queue.append((m.source, m.target, m.vm, False))
 
     while remaining_queue:
-        current_step_migs, inflow_count, processed_indices = [], defaultdict(int), []
+        current_step_migs = []
+        inflow_count = defaultdict(int)
+        processed_indices = []
+        
         for i, (src, dst, vm_name, is_temp) in enumerate(remaining_queue):
+            # Check if this VM is still waiting for another VM to leave its target
             if deps.get(vm_name): continue
-            if node_mem.get(dst, 0) - current_node_used[dst] < vm_by_name[vm_name].memory: continue
+            
+            # Check capacity: Does the target node have room RIGHT NOW?
+            avail = node_mem.get(dst, 0) - current_node_used[dst]
+            if avail < vm_by_name[vm_name].memory: continue
+            
+            # Check Safety: Max inflow reached for this node?
             if max_inflow and inflow_count[dst] >= max_inflow: continue
+            
+            # Check Safety: Global parallel limit reached?
             if max_parallel and len(current_step_migs) >= max_parallel: break
+                
+            # OK to migrate in this step!
             current_step_migs.append(Migration(vm_name, src, dst))
-            inflow_count[dst] += 1; processed_indices.append(i)
+            inflow_count[dst] += 1
+            processed_indices.append(i)
             
         if not current_step_migs: break
+
         steps.append(MigrationStep(step_num, current_step_migs, len(current_step_migs) > 1))
         step_num += 1
+        
+        # 7. Update virtual state after each planned step
         for idx in sorted(processed_indices, reverse=True):
             src, dst, vn, is_temp = remaining_queue.pop(idx)
             current_node_used[src] -= vm_by_name[vn].memory; current_node_used[dst] += vm_by_name[vn].memory
+            # VM is gone from its source: anyone waiting for it can now move
             for other in list(deps.keys()): deps[other].discard(vn)
-            if is_temp: remaining_queue.append((dst, mig_map[vn].target, vn, False))
+            
+            if is_temp:
+                # If this was a temp move, add the final leg (temp -> target) back to queue
+                remaining_queue.append((dst, mig_map[vn].target, vn, False))
 
     return MigrationPlan(steps, dependency_edges, temp_moves)
