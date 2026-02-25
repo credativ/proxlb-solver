@@ -643,6 +643,15 @@ tr:hover { background: var(--hover); }
 .tag-fail { background: #fee2e2; color: #b91c1c; }
 .tag-info { background: #dbeafe; color: #1e40af; }
 .meta { color: var(--meta); font-size: 12px; }
+details.nav-group summary { list-style: none; display: flex; align-items: center;
+    justify-content: space-between; padding: 6px 16px; cursor: pointer;
+    color: var(--meta); font-size: 11px; text-transform: uppercase; letter-spacing: .5px;
+    user-select: none; }
+details.nav-group summary:hover { background: var(--border); color: var(--fg); }
+details.nav-group summary::-webkit-details-marker { display: none; }
+details.nav-group summary::after { content: "▸"; font-size: 10px; transition: transform .15s; }
+details.nav-group[open] summary::after { transform: rotate(90deg); }
+details.nav-group ul { padding: 0; }
 .sc-meta { display: flex; flex-wrap: wrap; gap: 6px 24px; margin: 8px 0 12px; padding: 10px 14px;
            background: var(--card); border: 1px solid var(--border); border-radius: 6px; }
 .sc-meta div { display: flex; flex-direction: column; }
@@ -656,19 +665,39 @@ a:hover { text-decoration: underline; }
     h.append("<script>mermaid.initialize({startOnLoad:true, theme:'default'});</script>")
     h.append("</head><body>")
 
-    # Sidebar
+    # Sidebar — group scenarios by subdirectory
+    from pathlib import Path as _Path
+    from collections import OrderedDict as _OD
+    groups: dict[str, list] = _OD()
+    for entry in sc_data:
+        sp = entry[0]
+        cat = _Path(sp).parent.name if sp else "other"
+        groups.setdefault(cat, []).append(entry)
+
     h.append("<nav>")
     h.append('<div class="brand">ProxLB Solver</div>')
     h.append("<ul>")
     h.append('<li><a href="#summary">Summary</a></li>')
-    h.append('<li><a href="#overview">Scenario Overview</a></li>')
-    h.append('<li><a class="section">Scenarios</a></li>')
-    for _, cluster, _, _, checks, ok in sc_data:
-        slug = _slug(cluster.name)
-        cls = "badge-pass" if ok else "badge-fail"
-        txt = "PASS" if ok else "FAIL"
-        h.append(f'<li><a href="#{slug}">{cluster.name}<span class="badge {cls}">{txt}</span></a></li>')
-    h.append("</ul></nav>")
+    h.append('<li><a href="#overview">Overview</a></li>')
+    h.append("</ul>")
+    for cat, entries in groups.items():
+        n_pass = sum(1 for *_, ok in entries if ok)
+        n_total = len(entries)
+        cat_label = cat.replace("_", " ").title()
+        all_pass = n_pass == n_total
+        cnt_cls = "badge-pass" if all_pass else "badge-fail"
+        h.append(f'<details class="nav-group">')
+        h.append(f'<summary>{cat_label}'
+                 f'<span class="badge {cnt_cls}">{n_pass}/{n_total}</span></summary>')
+        h.append("<ul>")
+        for _, cluster, _, _, checks, ok in entries:
+            slug = _slug(cluster.name)
+            cls = "badge-pass" if ok else "badge-fail"
+            txt = "✓" if ok else "✗"
+            h.append(f'<li><a href="#{slug}">{cluster.name}'
+                     f'<span class="badge {cls}">{txt}</span></a></li>')
+        h.append("</ul></details>")
+    h.append("</nav>")
 
     # Main
     h.append("<main>")
