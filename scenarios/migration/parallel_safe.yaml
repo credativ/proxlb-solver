@@ -1,0 +1,27 @@
+name: "Planner — Parallel Independent Steps"
+description: >
+  Two migrations with different source and target nodes.
+  The planner should execute them in the same step.
+  Corrected to ensure a real gap improvement.
+
+balancing:
+  method: memory
+  balanciness: 5
+  w_stickiness: 0
+  max_node_inflow: 1
+
+nodes:
+  node-A: {cpu_total: 10, memory_total_gb: 64}
+  node-B: {cpu_total: 10, memory_total_gb: 64}
+  node-C: {cpu_total: 10, memory_total_gb: 64}
+  node-D: {cpu_total: 10, memory_total_gb: 64}
+
+vms:
+  # Node A has two VMs, Node C has one. B and D are empty.
+  vm-a1: {node: node-A, cpu: 1, memory_gb: 8}
+  vm-a2: {node: node-A, cpu: 1, memory_gb: 8}
+  vm-c: {node: node-C, cpu: 1, memory_gb: 8}
+
+expect:
+  feasible: true
+  spread_improved: true

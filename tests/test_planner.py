@@ -32,11 +32,11 @@ def _make_stats(**kwargs):
     return SolverStats(**defaults)
 
 
-def _make_cluster(nodes, vms):
+def _make_cluster(nodes, vms, balancing=None):
     return Cluster(
         name="test",
         description="",
-        balancing=Balancing(),
+        balancing=balancing or Balancing(max_node_inflow=10),
         nodes=nodes,
         vms=vms,
         constraints=Constraints(),

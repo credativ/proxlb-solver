@@ -1,0 +1,25 @@
+name: "Planner — Node Inflow Serialization"
+description: >
+  Four VMs migrate to the same target node. Even if there is plenty of room,
+  the planner should serialize them into 4 steps to avoid transient peaks,
+  respecting the default max_node_inflow: 1.
+
+balancing:
+  method: memory
+  balanciness: 5
+  w_stickiness: 0
+  max_node_inflow: 1 # Standard safety
+
+nodes:
+  node-A: {cpu_total: 10, memory_total_gb: 64}
+  node-B: {cpu_total: 10, memory_total_gb: 128}
+
+vms:
+  vm-1: {node: node-A, cpu: 1, memory_gb: 4}
+  vm-2: {node: node-A, cpu: 1, memory_gb: 4}
+  vm-3: {node: node-A, cpu: 1, memory_gb: 4}
+  vm-4: {node: node-A, cpu: 1, memory_gb: 4}
+
+expect:
+  feasible: true
+  spread_improved: true

@@ -70,6 +70,8 @@ class Balancing:
     w_global_mem: int = 10 # Importance of RAM in global_smart mode
     w_global_cpu: int = 10 # Importance of CPU in global_smart mode
     w_global_io: int = 1   # Importance of IO in global_smart mode
+    max_parallel_migrations: int | None = None # Global limit
+    max_node_inflow: int = 1 # Max VMs migrating TO a node at once
 
 
 @dataclass(frozen=True)

@@ -43,6 +43,8 @@ def load_scenario(path: str | Path) -> Cluster:
         w_global_mem=balancing_data.get("w_global_mem", 10),
         w_global_cpu=balancing_data.get("w_global_cpu", 10),
         w_global_io=balancing_data.get("w_global_io", 1),
+        max_parallel_migrations=balancing_data.get("max_parallel_migrations"),
+        max_node_inflow=balancing_data.get("max_node_inflow", 1),
     )
 
     nodes = []

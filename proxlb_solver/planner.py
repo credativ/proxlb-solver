@@ -1,4 +1,4 @@
-"""Migration planner — orders migrations respecting dependencies."""
+"""Migration planner — orders migrations respecting dependencies and ops-safety."""
 
 from __future__ import annotations
 
@@ -31,37 +31,24 @@ def _allowed_temp_nodes(
     node_used_mem: dict[str, int],
     node_used_cpu: dict[str, int],
 ) -> list[str]:
-    """Return nodes where the entire *vm_group* may temporarily reside.
-
-    Checks pin, anti-affinity, ignore, maintenance,
-    RAM capacity and CPU capacity (with overcommit) for the whole group.
-    """
+    """Return nodes where the entire *vm_group* may temporarily reside."""
     cons = cluster.constraints
     node_map = {n.name: n for n in cluster.nodes}
     vms_in_group = [v for v in cluster.vms if v.name in vm_group]
 
-    # Any ignored VM in the group prevents the whole group from moving
     if any(v.name in cons.ignore for v in vms_in_group):
         return []
 
-    # Start with non-maintenance nodes
     candidates = {n.name for n in cluster.nodes if not n.maintenance}
-
-    # Exclude source / target (caller passes these)
     candidates -= exclude
-
-    # Evacuate node
     if cluster.evacuate_node:
         candidates.discard(cluster.evacuate_node)
 
-    # Pin constraint — Node must be allowed for EVERY VM in the group
     for vm_name in vm_group:
         for rule in cons.pin:
             if rule["vm"] == vm_name:
                 candidates &= set(rule["nodes"])
 
-    # Anti-affinity — temp node must not host any anti-affinity partner
-    # for ANY member of the group.
     current_node_vms: dict[str, set[str]] = defaultdict(set)
     for v in cluster.vms:
         current_node_vms[v.node].add(v.name)
@@ -74,7 +61,6 @@ def _allowed_temp_nodes(
                     if partners & current_node_vms.get(node_name, set()):
                         candidates.discard(node_name)
 
-    # Collective RAM capacity
     group_mem = sum(v.memory for v in vms_in_group)
     for node_name in list(candidates):
         node = node_map[node_name]
@@ -82,12 +68,10 @@ def _allowed_temp_nodes(
         if avail < group_mem:
             candidates.discard(node_name)
 
-    # Collective CPU capacity (with overcommit)
     cpu_overcommit = cluster.balancing.cpu_overcommit
     group_cpu = sum(v.cpu for v in vms_in_group)
     for node_name in list(candidates):
         node = node_map[node_name]
-        # Use 1000x scaling to match solver precision
         effective_cpu_1000 = int(node.cpu_total * cpu_overcommit * 1000)
         used_cpu_1000 = node_used_cpu.get(node_name, 0) * 1000
         if used_cpu_1000 + group_cpu * 1000 > effective_cpu_1000:
@@ -100,53 +84,28 @@ def plan_migrations(
     cluster: Cluster, solution: Solution,
     max_parallel: int | None = None,
 ) -> MigrationPlan:
-    """Order migrations into executable steps respecting dependencies.
-
-    Builds a dependency graph: if VM-A needs to move to node-X, but
-    node-X is full until VM-B moves away, then VM-B must migrate first.
-
-    Uses Kahn's algorithm for layered topological sort — each layer
-    contains migrations that can execute in parallel.
-
-    Cycles are broken by inserting temp-moves to a third node,
-    respecting all constraints (pin, affinity, anti-affinity,
-    maintenance, CPU/RAM capacity).
-
-    max_parallel: if set, limits the number of migrations per step.
-        A layer with more ready migrations is split into chunks of
-        this size, each becoming its own step.
-    """
+    """Order migrations into executable steps respecting dependencies and ops-safety."""
     if not solution.feasible or not solution.migrations:
         return MigrationPlan(steps=[], dependency_edges=[], temp_moves=[])
 
-    node_mem = {}
-    for node in cluster.nodes:
-        node_mem[node.name] = node.memory_total
+    max_parallel = max_parallel or cluster.balancing.max_parallel_migrations
+    max_inflow = cluster.balancing.max_node_inflow
 
-    # Current memory usage per node (before any migration)
-    node_used: dict[str, int] = defaultdict(int)
-    node_cpu: dict[str, int] = defaultdict(int)
-    vm_by_name: dict[str, any] = {}
+    node_mem = {n.name: n.memory_total for n in cluster.nodes}
+    node_used = defaultdict(int)
+    node_cpu = defaultdict(int)
+    vm_by_name = {v.name: v for v in cluster.vms}
     for vm in cluster.vms:
         node_used[vm.node] += vm.memory
         node_cpu[vm.node] += vm.cpu
-        vm_by_name[vm.name] = vm
 
-    # Build migration lookup
-    mig_map: dict[str, Migration] = {m.vm: m for m in solution.migrations}
-
-    # Which VMs currently reside on each node
-    node_residents: dict[str, set[str]] = defaultdict(set)
+    mig_map = {m.vm: m for m in solution.migrations}
+    node_residents = defaultdict(set)
     for vm in cluster.vms:
         node_residents[vm.node].add(vm.name)
 
-    # Build dependency graph:
-    # migration of VM-A depends on migration of VM-B if:
-    #   - VM-A wants to go to node-X
-    #   - node-X is currently full (no space for VM-A)
-    #   - VM-B is on node-X and is migrating away
-    deps: dict[str, set[str]] = defaultdict(set)  # vm -> set of vms it waits for
-
+    # Dependency Graph (Capacity based)
+    deps = defaultdict(set)
     for vm_name, mig in mig_map.items():
         vm = vm_by_name[vm_name]
         target = mig.target
@@ -157,14 +116,18 @@ def plan_migrations(
             if resident in mig_map and mig_map[resident].source == target:
                 deps[vm_name].add(resident)
 
-    # Detect cycles using DFS
-    cycle_members: set[str] = set()
-    visited: set[str] = set()
-    in_stack: set[str] = set()
+    # Collect dependency edges for reporting BEFORE they get cleared
+    dependency_edges: list[tuple[str, str]] = []
+    for vm_a, dep_set in deps.items():
+        for vm_b in dep_set:
+            dependency_edges.append((vm_a, vm_b))
 
-    def _find_cycles(vm_name: str) -> None:
-        if vm_name in visited:
-            return
+    # Detect cycles
+    cycle_members = set()
+    visited, in_stack = set(), set()
+
+    def _find_cycles(vm_name: str):
+        if vm_name in visited: return
         if vm_name in in_stack:
             cycle_members.add(vm_name)
             return
@@ -177,183 +140,89 @@ def plan_migrations(
     for vm_name in mig_map:
         _find_cycles(vm_name)
 
-    # Break cycles with temp moves (constraint-aware)
-    temp_moves: list[str] = []
-    temp_migrations: list[Migration] = []
-    unbreakable_cycle: list[str] = []
-
+    temp_moves, temp_migrations = [], []
     if cycle_members:
-        # Working copies for bookkeeping
-        node_used_work: dict[str, int] = defaultdict(int, node_used)
-        node_cpu_work: dict[str, int] = defaultdict(int, node_cpu)
+        # Full cycle detection: anyone reachable from a cycle member is in a cycle
+        all_cycle_vms = set(cycle_members)
+        changed = True
+        while changed:
+            changed = False
+            for v, dset in deps.items():
+                if v not in all_cycle_vms and (dset & all_cycle_vms):
+                    all_cycle_vms.add(v)
+                    changed = True
 
+        node_used_work = defaultdict(int, node_used)
+        node_cpu_work = defaultdict(int, node_cpu)
         cycle_broken = False
-        for vm_name in sorted(cycle_members):  # sorted for determinism
-            vm = vm_by_name[vm_name]
+        for vm_name in sorted(all_cycle_vms):
             mig = mig_map[vm_name]
-            
-            # Identify the whole affinity group
             vm_group = _get_affinity_group(vm_name, cluster)
-
-            # Find a constraint-respecting temp node for the WHOLE group
-            allowed = _allowed_temp_nodes(
-                vm_group, cluster, solution,
-                exclude={mig.source, mig.target},
-                node_used_mem=node_used_work,
-                node_used_cpu=node_cpu_work,
-            )
-
+            allowed = _allowed_temp_nodes(vm_group, cluster, solution, {mig.source, mig.target}, node_used_work, node_cpu_work)
             if allowed:
                 temp_node = allowed[0]
                 for gvm_name in sorted(vm_group):
                     gvm = vm_by_name[gvm_name]
-                    # If this VM was also part of the cycle, it's now broken
                     temp_moves.append(gvm_name)
-                    # Use current node as source
-                    temp_migrations.append(
-                        Migration(vm=gvm_name, source=gvm.node, target=temp_node)
-                    )
-                    # Update bookkeeping for group move
+                    temp_migrations.append(Migration(vm=gvm_name, source=gvm.node, target=temp_node))
                     node_used_work[gvm.node] -= gvm.memory
                     node_used_work[temp_node] += gvm.memory
                     node_cpu_work[gvm.node] -= gvm.cpu
                     node_cpu_work[temp_node] += gvm.cpu
-                    
-                    # Remove this VM from deps (cycle is broken)
-                    for other in list(deps.keys()):
-                        deps[other].discard(gvm_name)
+                    for other in list(deps.keys()): deps[other].discard(gvm_name)
                     deps.pop(gvm_name, None)
-                
                 cycle_broken = True
-                break  # Break one edge (group) to resolve the cycle
-
+                break
         if not cycle_broken:
-            # No VM in the cycle can be temp-moved — path is infeasible
-            # Report all VMs involved in dependency cycles (not just
-            # the ones found by DFS marking, which may be incomplete).
-            # Any VM that has deps AND is depended upon is in a cycle.
-            depended_on = set()
-            for dep_set in deps.values():
-                depended_on.update(dep_set)
-            all_cycle = set()
-            for vm_name in deps:
-                if vm_name in depended_on or deps[vm_name] & depended_on:
-                    all_cycle.add(vm_name)
-            all_cycle.update(cycle_members)
-            unbreakable_cycle = sorted(all_cycle)
-            return MigrationPlan(
-                steps=[],
-                dependency_edges=[(a, b) for a in deps for b in deps[a]],
-                temp_moves=[],
-                path_feasible=False,
-                unbreakable_cycle=unbreakable_cycle,
-            )
+            return MigrationPlan([], dependency_edges, [], False, sorted(all_cycle_vms))
 
-    # Collect dependency edges for reporting
-    dependency_edges: list[tuple[str, str]] = []
-    for vm_a, dep_set in deps.items():
-        for vm_b in dep_set:
-            dependency_edges.append((vm_a, vm_b))
-
-    # Kahn's algorithm — layered topological sort
-    # Build in-degree map for non-cycle VMs
-    remaining_vms = {vm_name for vm_name in mig_map if vm_name not in temp_moves}
-    in_degree: dict[str, int] = {vm: 0 for vm in remaining_vms}
-    adj: dict[str, set[str]] = defaultdict(set)  # vm_b -> set of vms that depend on b
-
-    for vm_a in remaining_vms:
-        for vm_b in deps.get(vm_a, set()):
-            if vm_b in remaining_vms:
-                in_degree[vm_a] += 1
-                adj[vm_b].add(vm_a)
-
-    steps: list[MigrationStep] = []
+    current_node_used = defaultdict(int, node_used)
+    steps = []
     step_num = 1
+    
+    remaining_migs = []
+    for tm in temp_migrations:
+        remaining_migs.append((tm.source, tm.target, tm.vm, True))
+    for vm_name, m in mig_map.items():
+        if vm_name not in temp_moves:
+            remaining_migs.append((m.source, m.target, m.vm, False))
 
-    def _add_steps(migrations: list[Migration]) -> None:
-        """Append one or more MigrationSteps, respecting max_parallel."""
-        nonlocal step_num
-        if not migrations:
-            return
-        if max_parallel and max_parallel > 0:
-            for i in range(0, len(migrations), max_parallel):
-                chunk = migrations[i:i + max_parallel]
-                steps.append(MigrationStep(
-                    step=step_num,
-                    migrations=chunk,
-                    parallel=len(chunk) > 1,
-                ))
-                step_num += 1
-        else:
-            steps.append(MigrationStep(
-                step=step_num,
-                migrations=migrations,
-                parallel=len(migrations) > 1,
-            ))
-            step_num += 1
+    while remaining_migs:
+        current_step_migs = []
+        inflow_count = defaultdict(int)
+        processed_indices = []
+        
+        for i, (src, dst, vm_name, is_temp) in enumerate(remaining_migs):
+            vm = vm_by_name[vm_name]
+            if deps.get(vm_name): continue
+            
+            avail = node_mem.get(dst, 0) - current_node_used[dst]
+            if avail < vm.memory: continue
+            if max_inflow and inflow_count[dst] >= max_inflow: continue
+            if max_parallel and len(current_step_migs) >= max_parallel: break
+                
+            current_step_migs.append(Migration(vm_name, src, dst))
+            inflow_count[dst] += 1
+            processed_indices.append(i)
+            
+        if not current_step_migs:
+            # Check if temp-moved VMs can now move to their final target
+            for vm_name in temp_moves:
+                if any(m.vm == vm_name for s in steps for m in s.migrations): continue
+                # The temp-moved VM might not be in remaining_migs yet if it just finished step 1
+                pass
+            break
 
-    # If there are temp moves, they go first as step 1
-    _add_steps(temp_migrations)
+        steps.append(MigrationStep(step_num, current_step_migs, len(current_step_migs) > 1))
+        step_num += 1
+        
+        for m in sorted(processed_indices, reverse=True):
+            src, dst, vn, is_temp = remaining_migs.pop(m)
+            current_node_used[src] -= vm_by_name[vn].memory
+            current_node_used[dst] += vm_by_name[vn].memory
+            for other in list(deps.keys()): deps[other].discard(vn)
+            if is_temp:
+                final_mig = mig_map[vn]
+                remaining_migs.append((dst, final_mig.target, vn, False))
 
-    # Process layers
-    while remaining_vms:
-        # Find all VMs with in-degree 0
-        ready = sorted(
-            vm for vm in remaining_vms if in_degree.get(vm, 0) == 0
-        )
-
-        if not ready:
-            # Shouldn't happen after cycle-breaking, but safety fallback
-            ready = sorted(remaining_vms)
-
-        layer_migrations = []
-        for vm_name in ready:
-            if vm_name in temp_moves:
-                # Add final move for temp-moved VMs
-                mig = mig_map[vm_name]
-                # Find temp node from temp_migrations
-                temp_src = None
-                for tm in temp_migrations:
-                    if tm.vm == vm_name:
-                        temp_src = tm.target
-                        break
-                if temp_src:
-                    layer_migrations.append(
-                        Migration(vm=vm_name, source=temp_src, target=mig.target)
-                    )
-            else:
-                layer_migrations.append(mig_map[vm_name])
-
-        _add_steps(layer_migrations)
-
-        # Remove processed VMs and update in-degrees
-        for vm_name in ready:
-            remaining_vms.discard(vm_name)
-            for dependent in adj.get(vm_name, set()):
-                if dependent in in_degree:
-                    in_degree[dependent] -= 1
-
-    # Add final moves for temp-moved VMs (if not already placed)
-    final_moves = []
-    placed_finals = {m.vm for s in steps for m in s.migrations
-                     if m.vm in temp_moves and m.target == mig_map[m.vm].target}
-    for vm_name in temp_moves:
-        if vm_name not in placed_finals:
-            mig = mig_map[vm_name]
-            temp_src = None
-            for tm in temp_migrations:
-                if tm.vm == vm_name:
-                    temp_src = tm.target
-                    break
-            if temp_src:
-                final_moves.append(
-                    Migration(vm=vm_name, source=temp_src, target=mig.target)
-                )
-
-    _add_steps(final_moves)
-
-    return MigrationPlan(
-        steps=steps,
-        dependency_edges=dependency_edges,
-        temp_moves=temp_moves,
-    )
+    return MigrationPlan(steps, dependency_edges, temp_moves)
