@@ -124,3 +124,4 @@ class Solution:
     stats: SolverStats
     blocking_vms: list[str] = field(default_factory=list)  # VMs preventing evacuation
     path_feasible: bool = True  # False if feedback loop failed to find executable path
+    reachability_attempts: int = 1  # how many solve_reachable iterations

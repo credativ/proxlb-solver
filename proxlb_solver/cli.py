@@ -9,7 +9,11 @@ from pathlib import Path
 from .loader import load_scenario
 from .planner import plan_migrations
 from .reporter import (
-    print_report, write_html_report, write_junit_xml, write_markdown_report,
+    _check_expectations,
+    print_report,
+    write_html_report,
+    write_junit_xml,
+    write_markdown_report,
 )
 from .solver import solve, solve_reachable
 
@@ -51,14 +55,14 @@ def main() -> None:
         print("No scenarios found in %s" % args.scenarios, file=sys.stderr)
         sys.exit(1)
 
-    results_md = []
+    results = []
     results_junit = []
     migration_plans = {}
 
     for path in scenario_files:
         rel = str(path.relative_to(args.scenarios))
         cluster = load_scenario(path)
-        
+
         # Use reachable solver (feedback loop)
         solution, mig_plan = solve_reachable(cluster, quiet=args.quiet)
 
@@ -67,10 +71,9 @@ def main() -> None:
         if not args.quiet:
             print_report(cluster, solution)
 
-        results_md.append((rel, cluster, solution))
+        results.append((rel, cluster, solution))
 
         # Evaluate errors for JUnit
-        from .reporter import _check_expectations
         checks = _check_expectations(cluster, solution, mig_plan)
         errors = [
             "%s: %s" % (name, detail)
@@ -79,12 +82,12 @@ def main() -> None:
         results_junit.append((rel, cluster, solution, errors))
 
     if args.markdown:
-        write_markdown_report(results_md, args.markdown, migration_plans)
+        write_markdown_report(results, args.markdown, migration_plans)
         if not args.quiet:
             print("\nMarkdown report written to %s" % args.markdown)
 
     if args.html:
-        write_html_report(results_md, args.html, migration_plans)
+        write_html_report(results, args.html, migration_plans)
         if not args.quiet:
             print("HTML report written to %s" % args.html)
 

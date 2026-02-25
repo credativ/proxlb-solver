@@ -272,6 +272,7 @@ def solve(cluster: Cluster, time_limit_s: float = 30.0, forbidden_placements: li
 
 
 def solve_reachable(cluster: Cluster, total_time_limit_s: float = 60.0, max_retries: int = 10, quiet: bool = True) -> tuple[Solution, MigrationPlan]:
+    import dataclasses
     forbidden, last_sol, last_plan, start = [], None, None, time.monotonic()
     for attempt in range(max_retries + 1):
         rem = total_time_limit_s - (time.monotonic() - start)
@@ -279,16 +280,15 @@ def solve_reachable(cluster: Cluster, total_time_limit_s: float = 60.0, max_retr
         sol = solve(cluster, time_limit_s=max(1.0, rem), forbidden_placements=forbidden)
         if not sol.feasible:
             if last_sol:
-                import dataclasses
-                return dataclasses.replace(last_sol, path_feasible=False), last_plan
+                return dataclasses.replace(last_sol, path_feasible=False, reachability_attempts=attempt + 1), last_plan
             return sol, plan_migrations(cluster, sol)
         plan = plan_migrations(cluster, sol)
         last_sol, last_plan = sol, plan
-        if plan.path_feasible: return sol, plan
+        if plan.path_feasible:
+            return dataclasses.replace(sol, reachability_attempts=attempt + 1), plan
         if not plan.unbreakable_cycle: break
         forbidden.append({vm: sol.placements[vm] for vm in plan.unbreakable_cycle if vm in sol.placements})
         if not quiet: print(f"  [solve_reachable] Attempt {attempt+1}: Cycle {plan.unbreakable_cycle}. Retrying...")
     if last_sol:
-        import dataclasses
-        return dataclasses.replace(last_sol, path_feasible=False), last_plan
+        return dataclasses.replace(last_sol, path_feasible=False, reachability_attempts=attempt + 1), last_plan
     return sol, plan_migrations(cluster, sol)

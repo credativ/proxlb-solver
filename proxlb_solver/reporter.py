@@ -1,10 +1,13 @@
 """Result reporting and gap calculations for ProxLB Solver."""
 
 from __future__ import annotations
+import re
 import xml.etree.ElementTree as ET
 from collections import defaultdict
+from datetime import datetime
+from pathlib import Path
 from typing import Dict, List, Any
-from .models import Cluster, Solution, VM, Node, MigrationPlan
+from .models import Cluster, Migration, Solution, VM, Node, MigrationPlan
 
 # ── Gap Calculation Helpers (must match solver logic) ──
 
@@ -42,9 +45,7 @@ def _compute_load_gap(cluster: Cluster, placements: Dict[str, str]) -> float:
     vm_map = {v.name: v for v in cluster.vms}
     
     if method == "global_smart":
-        m_gap = _compute_single_gap(cluster, placements, "memory_smart") # Wait, compute_single_gap doesn't handle smart
-        # We need a recursive or explicit call
-        m_gap = (_compute_single_gap(cluster, placements, "memory") * bal.w_mem_usage + 
+        m_gap = (_compute_single_gap(cluster, placements, "memory") * bal.w_mem_usage +
                  _compute_single_gap(cluster, placements, "memory_psi") * bal.w_mem_psi) / (bal.w_mem_usage + bal.w_mem_psi)
         c_gap = (_compute_single_gap(cluster, placements, "cpu") * bal.w_cpu_usage + 
                  _compute_single_gap(cluster, placements, "cpu_psi") * bal.w_cpu_psi) / (bal.w_cpu_usage + bal.w_cpu_psi)
@@ -106,6 +107,13 @@ def print_report(cluster: Cluster, solution: Solution):
             console.print(f"  Blockers: {', '.join(solution.blocking_vms)}")
         return
 
+    if not solution.path_feasible:
+        console.print("[yellow bold]⚠ UNREACHABLE[/yellow bold] — solver found an optimal state, "
+                      "but no executable migration path exists.")
+        console.print("  The target placement is blocked by circular dependencies "
+                      "that cannot be resolved with temp-moves.")
+        console.print("")
+
     # Utilization Table
     table = Table(title="Node Utilization (Before → After)")
     table.add_column("Node")
@@ -156,7 +164,11 @@ def print_report(cluster: Cluster, solution: Solution):
     console.print(f"\n  Status: [bold green]{solution.stats.status}[/bold green]")
     console.print(f"  Weighted Gap: {solution.stats.load_gap:.3f}")
     console.print(f"  Migrations: {solution.stats.migration_count}")
-    console.print(f"  Solve time: {solution.stats.wall_time_ms:.1f} ms\n")
+    console.print(f"  Solve time: {solution.stats.wall_time_ms:.1f} ms")
+    if solution.reachability_attempts > 1:
+        console.print(f"  [yellow]Reachability: {solution.reachability_attempts} attempts "
+                      f"({'solved' if solution.path_feasible else 'FAILED'})[/yellow]")
+    console.print("")
 
 def _get_node_load_pct(cluster: Cluster, node: Node, placements: Dict[str, str]) -> float:
     method = cluster.balancing.method
@@ -170,7 +182,7 @@ def _get_node_load_pct(cluster: Cluster, node: Node, placements: Dict[str, str])
     # memory
     return sum(vm_map[v].memory for v in vms_here) / node.memory_total if node.memory_total else 0
 
-def write_junit_report(path, results):
+def write_junit_report(results, path):
     """Write test results to JUnit XML format."""
     suite = ET.Element("testsuite", {
         "name": "ProxLB Solver Scenarios",
@@ -189,3 +201,523 @@ def write_junit_report(path, results):
     tree = ET.ElementTree(suite)
     ET.indent(tree, space="  ")
     tree.write(str(path), xml_declaration=True, encoding="unicode")
+
+# Alias for backward compatibility
+write_junit_xml = write_junit_report
+
+_GB = 1024 * 1024 * 1024
+_MB_FMT = 1024 * 1024
+_ICON_OK = "\u2705"
+_ICON_FAIL = "\u274c"
+
+def _icon(ok: bool) -> str:
+    return _ICON_OK if ok else _ICON_FAIL
+
+
+# ── Expectation Checking ──
+
+def _check_expectations(
+    cluster: Cluster, solution: Solution,
+    migration_plan: MigrationPlan | None = None,
+) -> list[tuple[str, str, bool, str]]:
+    """Return list of (check_name, expected, passed, detail) tuples."""
+    checks: list[tuple[str, str, bool, str]] = []
+    expect = cluster.expect
+
+    # Feasibility
+    if expect.feasible:
+        ok = solution.feasible
+        checks.append(("feasible", "True", ok,
+                        solution.stats.status if not ok else "OK"))
+    else:
+        ok = not solution.feasible
+        checks.append(("feasible", "False", ok,
+                        "got feasible" if not ok else "OK"))
+
+    if not solution.feasible:
+        return checks
+
+    # Constraints satisfied
+    if expect.constraints_satisfied:
+        errs = []
+        for rule in cluster.constraints.anti_affinity:
+            if not rule.get("hard", True): continue
+            nodes_used = [solution.placements.get(v) for v in rule["vms"] if v in solution.placements]
+            if len(nodes_used) != len(set(nodes_used)):
+                errs.append(f"anti-affinity '{rule.get('name', '?')}' violated")
+        for rule in cluster.constraints.affinity:
+            if not rule.get("hard", True): continue
+            ns = {solution.placements.get(v) for v in rule["vms"] if v in solution.placements}
+            if len(ns) > 1:
+                errs.append(f"affinity '{rule.get('name', '?')}' violated: {ns}")
+        for rule in cluster.constraints.pin:
+            placed = solution.placements.get(rule["vm"])
+            if placed and placed not in rule["nodes"]:
+                errs.append(f"pin {rule['vm']} on {placed}")
+        for node in cluster.nodes:
+            if node.maintenance:
+                on_maint = [v for v, n in solution.placements.items() if n == node.name]
+                if on_maint: errs.append(f"VMs on maintenance {node.name}: {on_maint}")
+        for vm_name in cluster.constraints.ignore:
+            vm = next((v for v in cluster.vms if v.name == vm_name), None)
+            if vm and solution.placements.get(vm_name) != vm.node:
+                errs.append(f"ignored VM {vm_name} was moved")
+        ok = len(errs) == 0
+        checks.append(("constraints", "satisfied", ok, "; ".join(errs) if errs else "OK"))
+
+    # Spread improved
+    if expect.spread_improved is not None:
+        initial = _initial_load_gap(cluster)
+        final = _compute_load_gap(cluster, solution.placements)
+        improved = final < initial or initial == 0
+        if expect.spread_improved:
+            checks.append(("spread_improved", "True", improved,
+                           f"{initial:.3f} → {final:.3f}"))
+        else:
+            checks.append(("spread_improved", "False", not improved,
+                           f"{initial:.3f} → {final:.3f}"))
+
+    # Max migrations
+    if expect.max_migrations is not None:
+        ok = solution.stats.migration_count <= expect.max_migrations
+        checks.append(("max_migrations", f"≤{expect.max_migrations}", ok,
+                        f"got {solution.stats.migration_count}"))
+
+    # Node empty
+    if expect.node_empty is not None:
+        on_node = [v for v, n in solution.placements.items() if n == expect.node_empty]
+        ok = len(on_node) == 0
+        checks.append(("node_empty", expect.node_empty, ok,
+                        f"still has {on_node}" if on_node else "OK"))
+
+    # Placements
+    for vm_name, expected_val in expect.placements.items():
+        actual = solution.placements.get(vm_name)
+        if expected_val.startswith("== "):
+            ref_vm = expected_val[3:]
+            ref_node = solution.placements.get(ref_vm)
+            ok = actual == ref_node
+            checks.append((f"placement:{vm_name}", f"== {ref_vm}", ok,
+                           f"{actual} vs {ref_node}"))
+        else:
+            ok = actual == expected_val
+            checks.append((f"placement:{vm_name}", expected_val, ok,
+                           f"got {actual}"))
+
+    # Path feasible — check from expect block or from solution feedback loop
+    if expect.path_feasible is not None and migration_plan is not None:
+        if expect.path_feasible:
+            ok = migration_plan.path_feasible
+            detail = f"unbreakable: {migration_plan.unbreakable_cycle}" if not ok else "OK"
+        else:
+            ok = not migration_plan.path_feasible
+            detail = "path is feasible (expected infeasible)" if not ok else "OK"
+        checks.append(("path_feasible", str(expect.path_feasible), ok, detail))
+    elif not solution.path_feasible:
+        # No explicit expectation, but solve_reachable flagged it as unreachable
+        cycle_info = ""
+        if migration_plan and migration_plan.unbreakable_cycle:
+            cycle_info = f" — cycle: {migration_plan.unbreakable_cycle}"
+        checks.append(("path_feasible", "reachable", False,
+                        f"UNREACHABLE: no executable migration path{cycle_info}"))
+
+    return checks
+
+
+# ── Markdown Report ──
+
+def _fmt_bytes(b: int) -> str:
+    if b >= _GB: return f"{b / _GB:.1f} GB"
+    return f"{b / _MB_FMT:.0f} MB"
+
+
+def _node_load_pct(cluster: Cluster, node: Node, placements: Dict[str, str]) -> float:
+    """Compute load percentage for a node given placements."""
+    vm_map = {v.name: v for v in cluster.vms}
+    vms_here = [v for v, n in placements.items() if n == node.name]
+    method = cluster.balancing.method
+    if method == "cpu":
+        return sum(vm_map[v].cpu_usage for v in vms_here) / node.cpu_total if node.cpu_total else 0
+    if "psi" in method:
+        field = "cpu_pressure" if "cpu" in method else "memory_pressure" if "memory" in method else "io_pressure"
+        return sum(getattr(vm_map[v], field) for v in vms_here) / 100.0
+    return sum(vm_map[v].memory for v in vms_here) / node.memory_total if node.memory_total else 0
+
+
+def write_markdown_report(
+    results: list[tuple[str, Cluster, Solution]],
+    path: str | Path,
+    migration_plans: dict[str, MigrationPlan] | None = None,
+) -> None:
+    """Write a Markdown report."""
+    path = Path(path)
+    L: list[str] = []
+
+    # Pre-compute checks
+    all_checks = []
+    scenario_checks = []
+    for scenario_path, cluster, solution in results:
+        plan = migration_plans.get(scenario_path) if migration_plans else None
+        checks = _check_expectations(cluster, solution, plan)
+        all_checks.extend(checks)
+        scenario_checks.append((cluster.name, checks))
+
+    passed = sum(1 for _, _, p, _ in all_checks if p)
+    failed = sum(1 for _, _, p, _ in all_checks if not p)
+    sc_passed = sum(1 for _, chks in scenario_checks if all(p for _, _, p, _ in chks))
+
+    L.append("# ProxLB CP-SAT Solver — Test Report")
+    L.append("")
+    L.append(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    L.append("")
+    L.append(f"**{len(results)}** scenarios | **{sc_passed}/{len(results)}** passed | "
+             f"**{passed}** checks OK, **{failed}** failed")
+    L.append("")
+
+    # Overview table
+    L.append("## Scenario Overview")
+    L.append("")
+    L.append("| Scenario | Feasible | Migrations | Load Gap | Result |")
+    L.append("|----------|----------|------------|----------|--------|")
+    for scenario_path, cluster, solution in results:
+        plan = migration_plans.get(scenario_path) if migration_plans else None
+        checks = _check_expectations(cluster, solution, plan)
+        ok = all(p for _, _, p, _ in checks)
+        icon = "\u2705" if ok else "\u274c"
+        if solution.feasible:
+            gap = _compute_load_gap(cluster, solution.placements)
+            feasible_str = "\u26a0\ufe0f UNREACHABLE" if not solution.path_feasible else "Yes"
+            L.append(f"| {cluster.name} | {feasible_str} | {solution.stats.migration_count} | {gap:.3f} | {icon} |")
+        else:
+            L.append(f"| {cluster.name} | No | — | — | {icon} |")
+    L.append("")
+
+    # Detail per scenario
+    L.append("## Details")
+    L.append("")
+    for scenario_path, cluster, solution in results:
+        L.append(f"### {cluster.name}")
+        L.append("")
+        if cluster.description:
+            L.append(f"_{cluster.description}_")
+            L.append("")
+        L.append(f"- Method: `{cluster.balancing.method}` | Balanciness: {cluster.balancing.balanciness}")
+        status_line = f"- Status: **{solution.stats.status}** | Solve time: {solution.stats.wall_time_ms:.1f} ms"
+        if solution.reachability_attempts > 1:
+            outcome = "resolved" if solution.path_feasible else "FAILED"
+            status_line += f" | \u26a0\ufe0f Reachability: {solution.reachability_attempts} attempts ({outcome})"
+        L.append(status_line)
+        L.append("")
+
+        if not solution.feasible:
+            L.append(f"**INFEASIBLE** — {solution.stats.status}")
+            L.append("")
+            # Expectations
+            plan = migration_plans.get(scenario_path) if migration_plans else None
+            checks = _check_expectations(cluster, solution, plan)
+            L.append("| Check | Expected | Result | Detail |")
+            L.append("|-------|----------|--------|--------|")
+            for name, exp, ok, detail in checks:
+                L.append(f"| {name} | {exp} | {_icon(ok)} | {detail} |")
+            L.append("")
+            continue
+
+        if not solution.path_feasible:
+            L.append("> \u26a0\ufe0f **UNREACHABLE** — The solver found an optimal target state, "
+                     "but no executable migration path exists. Circular dependencies "
+                     "could not be resolved with temp-moves.")
+            L.append("")
+
+        # Node utilization
+        initial = {v.name: v.node for v in cluster.vms}
+        L.append("#### Node Utilization")
+        L.append("")
+        L.append("| Node | Before | After |")
+        L.append("|------|--------|-------|")
+        for node in cluster.nodes:
+            if node.maintenance:
+                L.append(f"| {node.name} | \u26a0\ufe0f maintenance | — |")
+                continue
+            before = _node_load_pct(cluster, node, initial)
+            after = _node_load_pct(cluster, node, solution.placements)
+            L.append(f"| {node.name} | {before*100:.1f}% | {after*100:.1f}% |")
+        L.append("")
+
+        # Migrations
+        if solution.migrations:
+            L.append("#### Migrations")
+            L.append("")
+            L.append("| VM | From | To | Priority |")
+            L.append("|----|------|----|----------|")
+            vm_map = {v.name: v for v in cluster.vms}
+            for m in solution.migrations:
+                prio = vm_map[m.vm].priority
+                L.append(f"| {m.vm} | {m.source} | {m.target} | {prio} |")
+            L.append("")
+
+            # Migration plan steps
+            plan = migration_plans.get(scenario_path) if migration_plans else None
+            if plan and plan.steps:
+                L.append("#### Execution Plan")
+                L.append("")
+                for step in plan.steps:
+                    par = " (parallel)" if step.parallel else ""
+                    L.append(f"**Step {step.step}**{par}:")
+                    for m in step.migrations:
+                        L.append(f"- {m.vm}: {m.source} → {m.target}")
+                    L.append("")
+                if plan.temp_moves:
+                    L.append(f"Temp moves: {', '.join(plan.temp_moves)}")
+                    L.append("")
+                if not plan.path_feasible:
+                    L.append(f"\u26a0\ufe0f **Path infeasible** — unbreakable cycle: {plan.unbreakable_cycle}")
+                    L.append("")
+
+        # Expectations
+        plan = migration_plans.get(scenario_path) if migration_plans else None
+        checks = _check_expectations(cluster, solution, plan)
+        L.append("#### Expectations")
+        L.append("")
+        L.append("| Check | Expected | Result | Detail |")
+        L.append("|-------|----------|--------|--------|")
+        for name, exp, ok, detail in checks:
+            L.append(f"| {name} | {exp} | {_icon(ok)} | {detail} |")
+        L.append("")
+
+    path.write_text("\n".join(L), encoding="utf-8")
+
+
+# ── HTML Report ──
+
+def _slug(name: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+
+
+def write_html_report(
+    results: list[tuple[str, Cluster, Solution]],
+    path: str | Path,
+    migration_plans: dict[str, MigrationPlan] | None = None,
+) -> None:
+    """Write a self-contained HTML report with sidebar navigation."""
+    path = Path(path)
+    h: list[str] = []
+
+    # Pre-compute checks per scenario
+    sc_data = []
+    all_passed_count = 0
+    all_failed_count = 0
+    for scenario_path, cluster, solution in results:
+        plan = migration_plans.get(scenario_path) if migration_plans else None
+        checks = _check_expectations(cluster, solution, plan)
+        ok = all(p for _, _, p, _ in checks)
+        if ok: all_passed_count += 1
+        all_failed_count += sum(1 for _, _, p, _ in checks if not p)
+        sc_data.append((scenario_path, cluster, solution, plan, checks, ok))
+
+    total_checks = sum(len(c) for _, _, _, _, c, _ in sc_data)
+
+    h.append("<!DOCTYPE html><html><head><meta charset='utf-8'>")
+    h.append("<title>ProxLB Solver Report</title>")
+    h.append("<style>")
+    h.append("""
+:root { --bg: #1a1b26; --fg: #c0caf5; --card: #24283b; --accent: #7aa2f7;
+        --ok: #9ece6a; --err: #f7768e; --warn: #e0af68; --border: #3b4261;
+        --sidebar: #16161e; --sidebar-w: 260px; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg);
+       color: var(--fg); display: flex; min-height: 100vh; font-size: 14px; }
+nav { position: fixed; left: 0; top: 0; bottom: 0; width: var(--sidebar-w);
+      background: var(--sidebar); border-right: 1px solid var(--border);
+      overflow-y: auto; padding: 16px 0; z-index: 10; }
+nav .brand { color: var(--accent); font-weight: 700; font-size: 16px;
+             padding: 0 16px 12px; border-bottom: 1px solid var(--border); }
+nav ul { list-style: none; padding: 8px 0; }
+nav li a { display: flex; align-items: center; justify-content: space-between;
+           padding: 6px 16px; color: var(--fg); text-decoration: none;
+           font-size: 13px; transition: background .15s; }
+nav li a:hover { background: var(--border); }
+nav .section { color: #565f89; text-transform: uppercase; font-size: 11px;
+               letter-spacing: .5px; padding: 12px 16px 4px; cursor: default; }
+.badge { font-size: 10px; padding: 1px 6px; border-radius: 3px; font-weight: 600; }
+.badge-pass { background: var(--ok); color: #1a1b26; }
+.badge-fail { background: var(--err); color: #1a1b26; }
+main { margin-left: var(--sidebar-w); padding: 24px 32px; flex: 1; max-width: 1200px; }
+h1 { color: var(--accent); margin-bottom: 4px; }
+h2 { color: var(--accent); margin: 24px 0 12px; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+h3 { margin: 16px 0 8px; }
+h4 { margin: 12px 0 6px; color: #7dcfff; }
+.card { background: var(--card); border: 1px solid var(--border); border-radius: 8px;
+        padding: 16px 20px; margin-bottom: 16px; }
+.summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+                gap: 12px; margin: 12px 0; }
+.stat { background: var(--card); border: 1px solid var(--border); border-radius: 6px;
+        padding: 12px; text-align: center; }
+.stat .num { font-size: 28px; font-weight: 700; }
+.stat .label { font-size: 12px; color: #565f89; margin-top: 2px; }
+table { border-collapse: collapse; width: 100%; margin: 8px 0; font-size: 13px; }
+th, td { padding: 6px 10px; text-align: left; border-bottom: 1px solid var(--border); }
+th { color: var(--accent); font-weight: 600; }
+tr:hover { background: rgba(122, 162, 247, 0.05); }
+.bar-bg { display: inline-block; width: 100px; height: 12px; background: var(--border);
+          border-radius: 3px; overflow: hidden; vertical-align: middle; }
+.bar-fill { height: 100%; border-radius: 3px; }
+.ok { color: var(--ok); } .err { color: var(--err); } .warn { color: var(--warn); }
+.tag { display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 11px;
+       font-weight: 600; margin-right: 4px; }
+.tag-pass { background: var(--ok); color: #1a1b26; }
+.tag-fail { background: var(--err); color: #1a1b26; }
+.tag-info { background: var(--accent); color: #1a1b26; }
+.meta { color: #565f89; font-size: 12px; }
+""")
+    h.append("</style></head><body>")
+
+    # Sidebar
+    h.append("<nav>")
+    h.append('<div class="brand">ProxLB Solver</div>')
+    h.append("<ul>")
+    h.append('<li><a href="#summary">Summary</a></li>')
+    h.append('<li><a href="#overview">Scenario Overview</a></li>')
+    h.append('<li><a class="section">Scenarios</a></li>')
+    for _, cluster, _, _, checks, ok in sc_data:
+        slug = _slug(cluster.name)
+        cls = "badge-pass" if ok else "badge-fail"
+        txt = "PASS" if ok else "FAIL"
+        h.append(f'<li><a href="#{slug}">{cluster.name}<span class="badge {cls}">{txt}</span></a></li>')
+    h.append("</ul></nav>")
+
+    # Main
+    h.append("<main>")
+
+    # Summary
+    h.append('<div id="summary">')
+    h.append("<h1>ProxLB CP-SAT Solver Report</h1>")
+    h.append(f'<p class="meta">Generated: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}</p>')
+    h.append('<div class="summary-grid">')
+    h.append(f'<div class="stat"><div class="num">{len(results)}</div><div class="label">Scenarios</div></div>')
+    h.append(f'<div class="stat"><div class="num ok">{all_passed_count}</div><div class="label">Passed</div></div>')
+    failed_sc = len(results) - all_passed_count
+    h.append(f'<div class="stat"><div class="num {"err" if failed_sc else "ok"}">{failed_sc}</div><div class="label">Failed</div></div>')
+    h.append(f'<div class="stat"><div class="num">{total_checks - all_failed_count}/{total_checks}</div><div class="label">Checks OK</div></div>')
+    h.append("</div></div>")
+
+    # Overview table
+    h.append('<div id="overview">')
+    h.append("<h2>Scenario Overview</h2>")
+    h.append("<table><tr><th>Scenario</th><th>Feasible</th><th>Migrations</th>"
+             "<th>Load Gap</th><th>Steps</th><th>Result</th></tr>")
+    for scenario_path, cluster, solution, plan, checks, ok in sc_data:
+        slug = _slug(cluster.name)
+        badge = f'<span class="tag tag-pass">PASS</span>' if ok else '<span class="tag tag-fail">FAIL</span>'
+        if solution.feasible:
+            gap = _compute_load_gap(cluster, solution.placements)
+            steps = len(plan.steps) if plan else "—"
+            if not solution.path_feasible:
+                feas_cell = '<td class="warn">\u26a0\ufe0f UNREACHABLE</td>'
+            else:
+                feas_cell = '<td class="ok">Yes</td>'
+            h.append(f'<tr><td><a href="#{slug}">{cluster.name}</a></td>{feas_cell}'
+                     f'<td>{solution.stats.migration_count}</td><td>{gap:.3f}</td>'
+                     f'<td>{steps}</td><td>{badge}</td></tr>')
+        else:
+            h.append(f'<tr><td><a href="#{slug}">{cluster.name}</a></td><td class="err">No</td>'
+                     f'<td>—</td><td>—</td><td>—</td><td>{badge}</td></tr>')
+    h.append("</table></div>")
+
+    # Detailed sections
+    h.append("<h2>Detailed Results</h2>")
+    for scenario_path, cluster, solution, plan, checks, ok in sc_data:
+        slug = _slug(cluster.name)
+        vm_map = {v.name: v for v in cluster.vms}
+        initial = {v.name: v.node for v in cluster.vms}
+
+        h.append(f'<div class="card" id="{slug}">')
+        h.append(f'<h3>{cluster.name} {_html_badge(ok)}</h3>')
+        if cluster.description:
+            h.append(f'<p class="meta">{cluster.description}</p>')
+        retry_info = ""
+        if solution.reachability_attempts > 1:
+            outcome = "resolved" if solution.path_feasible else "FAILED"
+            retry_info = (f' | <span class="warn">\u26a0\ufe0f Reachability: '
+                          f'{solution.reachability_attempts} attempts ({outcome})</span>')
+        h.append(f'<p class="meta">Method: <code>{cluster.balancing.method}</code> '
+                 f'| Balanciness: {cluster.balancing.balanciness} '
+                 f'| Status: <b>{solution.stats.status}</b> '
+                 f'| {solution.stats.wall_time_ms:.1f} ms{retry_info}</p>')
+
+        if not solution.feasible:
+            h.append(f'<p class="err"><b>INFEASIBLE</b> — {solution.stats.status}</p>')
+            if solution.blocking_vms:
+                h.append(f'<p>Blockers: {", ".join(solution.blocking_vms)}</p>')
+            _html_checks_table(h, checks)
+            h.append("</div>")
+            continue
+
+        if not solution.path_feasible:
+            h.append('<p class="warn"><b>\u26a0\ufe0f UNREACHABLE</b> — '
+                     'The solver found an optimal target state, but no executable '
+                     'migration path exists. Circular dependencies could not be '
+                     'resolved with temp-moves.</p>')
+
+        # Node utilization
+        h.append("<h4>Node Utilization</h4>")
+        h.append("<table><tr><th>Node</th><th>Before</th><th></th><th>After</th><th>Bar</th></tr>")
+        for node in cluster.nodes:
+            if node.maintenance:
+                h.append(f'<tr><td>{node.name}</td><td colspan="4" class="warn">maintenance</td></tr>')
+                continue
+            before = _node_load_pct(cluster, node, initial)
+            after = _node_load_pct(cluster, node, solution.placements)
+            color = "var(--ok)" if after < 0.8 else "var(--warn)" if after < 0.95 else "var(--err)"
+            h.append(f'<tr><td>{node.name}</td><td>{before*100:.1f}%</td><td>→</td>'
+                     f'<td>{after*100:.1f}%</td>'
+                     f'<td><div class="bar-bg"><div class="bar-fill" style="width:{min(after*100,100):.0f}%;background:{color}"></div></div></td></tr>')
+        h.append("</table>")
+
+        # Migrations
+        if solution.migrations:
+            h.append("<h4>Migrations</h4>")
+            h.append("<table><tr><th>VM</th><th>From</th><th>To</th><th>Memory</th><th>Priority</th></tr>")
+            for m in solution.migrations:
+                vm = vm_map[m.vm]
+                h.append(f'<tr><td>{m.vm}</td><td>{m.source}</td><td>{m.target}</td>'
+                         f'<td>{_fmt_bytes(vm.memory)}</td><td>{vm.priority}</td></tr>')
+            h.append("</table>")
+
+            # Execution plan
+            if plan and plan.steps:
+                h.append("<h4>Execution Plan</h4>")
+                h.append("<table><tr><th>Step</th><th>VM</th><th>From</th><th>To</th><th>Parallel</th></tr>")
+                for step in plan.steps:
+                    first = True
+                    for m in step.migrations:
+                        step_cell = f'{step.step}' if first else ""
+                        par_cell = ("Yes" if step.parallel else "No") if first else ""
+                        h.append(f'<tr><td>{step_cell}</td><td>{m.vm}</td>'
+                                 f'<td>{m.source}</td><td>{m.target}</td><td>{par_cell}</td></tr>')
+                        first = False
+                h.append("</table>")
+                if plan.temp_moves:
+                    h.append(f'<p class="warn">Temp moves: {", ".join(plan.temp_moves)}</p>')
+                if not plan.path_feasible:
+                    h.append(f'<p class="err"><b>Path infeasible</b> — unbreakable cycle: {plan.unbreakable_cycle}</p>')
+
+        # Expectations
+        _html_checks_table(h, checks)
+        h.append("</div>")
+
+    h.append("</main></body></html>")
+    path.write_text("\n".join(h), encoding="utf-8")
+
+
+def _html_badge(ok: bool) -> str:
+    if ok: return '<span class="tag tag-pass">PASS</span>'
+    return '<span class="tag tag-fail">FAIL</span>'
+
+
+def _html_checks_table(h: list[str], checks: list[tuple[str, str, bool, str]]) -> None:
+    h.append("<h4>Expectations</h4>")
+    h.append("<table><tr><th>Check</th><th>Expected</th><th>Result</th><th>Detail</th></tr>")
+    for name, exp, ok, detail in checks:
+        icon = '<span class="ok">\u2705</span>' if ok else '<span class="err">\u274c</span>'
+        h.append(f'<tr><td>{name}</td><td>{exp}</td><td>{icon}</td><td>{detail}</td></tr>')
+    h.append("</table>")
