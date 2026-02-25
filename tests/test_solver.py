@@ -6,15 +6,14 @@ from collections import defaultdict
 from pathlib import Path
 
 from proxlb_solver.loader import load_scenario
-from proxlb_solver.planner import plan_migrations
-from proxlb_solver.solver import solve
+from proxlb_solver.solver import solve_reachable
 from proxlb_solver.reporter import _compute_load_gap, _initial_load_gap
 
 
 def test_scenario(scenario_path: Path):
     """Test a single YAML scenario against its expect block."""
     cluster = load_scenario(scenario_path)
-    solution = solve(cluster)
+    solution, mig_plan = solve_reachable(cluster, quiet=True)
     expect = cluster.expect
 
     errors = []
@@ -190,7 +189,6 @@ def test_scenario(scenario_path: Path):
 
     # Check path_feasible
     if expect.path_feasible is not None:
-        mig_plan = plan_migrations(cluster, solution)
         if expect.path_feasible and not mig_plan.path_feasible:
             errors.append(
                 f"Expected path_feasible but planner found unbreakable cycle: "

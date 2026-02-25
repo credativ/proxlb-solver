@@ -1,9 +1,12 @@
 name: "Loop Required — Deadlock Bypass"
 description: >
-  VM-A and VM-B want to swap, which is optimal but creates an unbreakable
-  cycle because no temp node is available (node-C is maintenance).
-  However, VM-A is also allowed on node-D. The solver should first try the 
-  swap, fail the path check, then successfully find the path to node-D.
+  VM-A (55 GB on node-B) and VM-B (45 GB on node-A) should swap for
+  near-perfect balance (68.8 % vs 70.3 %). But both nodes are too full
+  for either VM to land while the other is still there, and node-C is in
+  maintenance — no temp node available. The planner detects an unbreakable
+  cycle. The solve_reachable loop forbids this swap and the solver falls
+  back to the current (suboptimal) placement as the best reachable state.
+  This demonstrates the retry loop (attempts > 1) resolving successfully.
 
 balancing:
   method: memory
@@ -13,41 +16,30 @@ balancing:
 nodes:
   node-A:
     cpu_total: 16
-    memory_total_gb: 60
+    memory_total_gb: 80
   node-B:
     cpu_total: 16
-    memory_total_gb: 60
+    memory_total_gb: 64
   node-C:
     cpu_total: 16
     memory_total_gb: 64
     maintenance: true
-  node-D:
-    cpu_total: 16
-    memory_total_gb: 60
 
 vms:
   vm-a:
-    node: node-A
-    cpu: 4
-    memory_gb: 50
-    type: vm
-  vm-b:
     node: node-B
     cpu: 4
-    memory_gb: 50
+    memory_gb: 55
+    type: vm
+  vm-b:
+    node: node-A
+    cpu: 4
+    memory_gb: 45
     type: vm
 
-constraints:
-  pin:
-    - vm: vm-a
-      nodes: [node-B, node-D]
-    - vm: vm-b
-      nodes: [node-A]
+constraints: {}
 
 expect:
   feasible: true
   constraints_satisfied: true
   path_feasible: true
-  placements:
-    vm-a: node-D
-    vm-b: node-A

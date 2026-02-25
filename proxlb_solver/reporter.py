@@ -473,6 +473,17 @@ def write_markdown_report(
                     L.append(f"\u26a0\ufe0f **Path infeasible** — unbreakable cycle: {plan.unbreakable_cycle}")
                     L.append("")
 
+                # Dependency graph (Mermaid)
+                if plan.dependency_edges:
+                    mermaid = _mermaid_graph(plan, solution.migrations)
+                    if mermaid:
+                        L.append("#### Dependency Graph")
+                        L.append("")
+                        L.append("```mermaid")
+                        L.append(mermaid)
+                        L.append("```")
+                        L.append("")
+
         # Expectations
         plan = migration_plans.get(scenario_path) if migration_plans else None
         checks = _check_expectations(cluster, solution, plan)
@@ -520,9 +531,10 @@ def write_html_report(
     h.append("<title>ProxLB Solver Report</title>")
     h.append("<style>")
     h.append("""
-:root { --bg: #1a1b26; --fg: #c0caf5; --card: #24283b; --accent: #7aa2f7;
-        --ok: #9ece6a; --err: #f7768e; --warn: #e0af68; --border: #3b4261;
-        --sidebar: #16161e; --sidebar-w: 260px; }
+:root { --bg: #ffffff; --fg: #1f2937; --card: #f9fafb; --accent: #2563eb;
+        --ok: #16a34a; --err: #dc2626; --warn: #d97706; --border: #e5e7eb;
+        --sidebar: #f3f4f6; --sidebar-w: 260px; --th: #1e40af;
+        --hover: #f0f4ff; --meta: #6b7280; --heading: #111827; }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg);
        color: var(--fg); display: flex; min-height: 100vh; font-size: 14px; }
@@ -536,40 +548,45 @@ nav li a { display: flex; align-items: center; justify-content: space-between;
            padding: 6px 16px; color: var(--fg); text-decoration: none;
            font-size: 13px; transition: background .15s; }
 nav li a:hover { background: var(--border); }
-nav .section { color: #565f89; text-transform: uppercase; font-size: 11px;
+nav .section { color: var(--meta); text-transform: uppercase; font-size: 11px;
                letter-spacing: .5px; padding: 12px 16px 4px; cursor: default; }
 .badge { font-size: 10px; padding: 1px 6px; border-radius: 3px; font-weight: 600; }
-.badge-pass { background: var(--ok); color: #1a1b26; }
-.badge-fail { background: var(--err); color: #1a1b26; }
+.badge-pass { background: #dcfce7; color: #15803d; border: 1px solid #bbf7d0; }
+.badge-fail { background: #fee2e2; color: #b91c1c; border: 1px solid #fecaca; }
 main { margin-left: var(--sidebar-w); padding: 24px 32px; flex: 1; max-width: 1200px; }
-h1 { color: var(--accent); margin-bottom: 4px; }
-h2 { color: var(--accent); margin: 24px 0 12px; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
-h3 { margin: 16px 0 8px; }
-h4 { margin: 12px 0 6px; color: #7dcfff; }
+h1 { color: var(--heading); margin-bottom: 4px; }
+h2 { color: var(--heading); margin: 24px 0 12px; border-bottom: 2px solid var(--border); padding-bottom: 6px; }
+h3 { margin: 16px 0 8px; color: var(--heading); }
+h4 { margin: 12px 0 6px; color: var(--accent); }
 .card { background: var(--card); border: 1px solid var(--border); border-radius: 8px;
         padding: 16px 20px; margin-bottom: 16px; }
 .summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
                 gap: 12px; margin: 12px 0; }
 .stat { background: var(--card); border: 1px solid var(--border); border-radius: 6px;
         padding: 12px; text-align: center; }
-.stat .num { font-size: 28px; font-weight: 700; }
-.stat .label { font-size: 12px; color: #565f89; margin-top: 2px; }
+.stat .num { font-size: 28px; font-weight: 700; color: var(--heading); }
+.stat .label { font-size: 12px; color: var(--meta); margin-top: 2px; }
 table { border-collapse: collapse; width: 100%; margin: 8px 0; font-size: 13px; }
-th, td { padding: 6px 10px; text-align: left; border-bottom: 1px solid var(--border); }
-th { color: var(--accent); font-weight: 600; }
-tr:hover { background: rgba(122, 162, 247, 0.05); }
-.bar-bg { display: inline-block; width: 100px; height: 12px; background: var(--border);
+th, td { padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--border); }
+th { color: var(--th); font-weight: 600; background: #f0f4ff; }
+tr:hover { background: var(--hover); }
+.bar-bg { display: inline-block; width: 100px; height: 12px; background: #e5e7eb;
           border-radius: 3px; overflow: hidden; vertical-align: middle; }
 .bar-fill { height: 100%; border-radius: 3px; }
 .ok { color: var(--ok); } .err { color: var(--err); } .warn { color: var(--warn); }
-.tag { display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 11px;
+.tag { display: inline-block; padding: 2px 8px; border-radius: 3px; font-size: 11px;
        font-weight: 600; margin-right: 4px; }
-.tag-pass { background: var(--ok); color: #1a1b26; }
-.tag-fail { background: var(--err); color: #1a1b26; }
-.tag-info { background: var(--accent); color: #1a1b26; }
-.meta { color: #565f89; font-size: 12px; }
+.tag-pass { background: #dcfce7; color: #15803d; }
+.tag-fail { background: #fee2e2; color: #b91c1c; }
+.tag-info { background: #dbeafe; color: #1e40af; }
+.meta { color: var(--meta); font-size: 12px; }
+a { color: var(--accent); }
+a:hover { text-decoration: underline; }
 """)
-    h.append("</style></head><body>")
+    h.append("</style>")
+    h.append('<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>')
+    h.append("<script>mermaid.initialize({startOnLoad:true, theme:'default'});</script>")
+    h.append("</head><body>")
 
     # Sidebar
     h.append("<nav>")
@@ -701,12 +718,45 @@ tr:hover { background: rgba(122, 162, 247, 0.05); }
                 if not plan.path_feasible:
                     h.append(f'<p class="err"><b>Path infeasible</b> — unbreakable cycle: {plan.unbreakable_cycle}</p>')
 
+            # Dependency graph (Mermaid)
+            if plan and plan.dependency_edges:
+                mermaid = _mermaid_graph(plan, solution.migrations)
+                if mermaid:
+                    h.append("<h4>Dependency Graph</h4>")
+                    h.append(f'<pre class="mermaid">{mermaid}</pre>')
+
         # Expectations
         _html_checks_table(h, checks)
         h.append("</div>")
 
     h.append("</main></body></html>")
     path.write_text("\n".join(h), encoding="utf-8")
+
+
+def _mermaid_graph(plan: MigrationPlan, migrations: list[Migration]) -> str | None:
+    """Build a Mermaid graph LR string from dependency edges and migrations."""
+    if not plan or not plan.dependency_edges:
+        return None
+    mig_map = {m.vm: m for m in migrations}
+    lines = ["graph LR"]
+    # Define nodes with labels
+    seen = set()
+    for a, b in plan.dependency_edges:
+        for vm_name in (a, b):
+            if vm_name not in seen:
+                seen.add(vm_name)
+                m = mig_map.get(vm_name)
+                if m:
+                    lines.append(f'    {vm_name}["{vm_name}: {m.source} → {m.target}"]')
+                else:
+                    lines.append(f'    {vm_name}["{vm_name}"]')
+    # Edges: a waits for b  →  b --> a  (b must go first)
+    for a, b in plan.dependency_edges:
+        lines.append(f"    {b} --> {a}")
+    if plan.temp_moves:
+        for vm_name in plan.temp_moves:
+            lines.append(f"    style {vm_name} stroke:#d97706,stroke-width:2px")
+    return "\n".join(lines)
 
 
 def _html_badge(ok: bool) -> str:
