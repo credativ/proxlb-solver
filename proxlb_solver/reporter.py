@@ -643,6 +643,11 @@ tr:hover { background: var(--hover); }
 .tag-fail { background: #fee2e2; color: #b91c1c; }
 .tag-info { background: #dbeafe; color: #1e40af; }
 .meta { color: var(--meta); font-size: 12px; }
+.sc-meta { display: flex; flex-wrap: wrap; gap: 6px 24px; margin: 8px 0 12px; padding: 10px 14px;
+           background: var(--card); border: 1px solid var(--border); border-radius: 6px; }
+.sc-meta div { display: flex; flex-direction: column; }
+.sc-meta .k { color: var(--meta); font-size: 11px; text-transform: uppercase; letter-spacing: .4px; }
+.sc-meta .v { font-size: 13px; font-weight: 500; margin-top: 2px; }
 a { color: var(--accent); }
 a:hover { text-decoration: underline; }
 """)
@@ -715,20 +720,25 @@ a:hover { text-decoration: underline; }
         h.append(f'<h3>{cluster.name} {_html_badge(ok)}</h3>')
         if cluster.description:
             h.append(f'<p class="meta">{cluster.description}</p>')
-        retry_info = ""
-        if solution.reachability_attempts > 1:
-            outcome = "resolved" if solution.path_feasible else "FAILED"
-            retry_info = (f' | <span class="warn">\u26a0\ufe0f Reachability: '
-                          f'{solution.reachability_attempts} attempts ({outcome})</span>')
-        gap_str = ""
+        status_cls = "ok" if solution.stats.status in ("OPTIMAL", "FEASIBLE") else "err"
+        meta_items = [
+            ("Method",      f'<code>{cluster.balancing.method}</code>'),
+            ("Balanciness", str(cluster.balancing.balanciness)),
+            ("Status",      f'<span class="{status_cls}">{solution.stats.status}</span>'),
+            ("Solve time",  _fmt_time(solution.stats.wall_time_ms)),
+        ]
         if solution.feasible:
             _i = _initial_load_gap(cluster)
             _f = _compute_load_gap(cluster, solution.placements)
-            gap_str = f' | Load Gap: {_fmt_gap(_i, _f)}'
-        h.append(f'<p class="meta">Method: <code>{cluster.balancing.method}</code> '
-                 f'| Balanciness: {cluster.balancing.balanciness} '
-                 f'| Status: <b>{solution.stats.status}</b> '
-                 f'| {_fmt_time(solution.stats.wall_time_ms)}{gap_str}{retry_info}</p>')
+            meta_items.append(("Load Gap", _fmt_gap(_i, _f)))
+        if solution.reachability_attempts > 1:
+            outcome = "resolved" if solution.path_feasible else "FAILED"
+            meta_items.append(("Reachability",
+                               f'<span class="warn">\u26a0\ufe0f {solution.reachability_attempts} attempts ({outcome})</span>'))
+        h.append('<div class="sc-meta">')
+        for k, v in meta_items:
+            h.append(f'<div><span class="k">{k}</span><span class="v">{v}</span></div>')
+        h.append('</div>')
 
         if not solution.feasible:
             h.append(f'<p class="err"><b>INFEASIBLE</b> — {solution.stats.status}</p>')
