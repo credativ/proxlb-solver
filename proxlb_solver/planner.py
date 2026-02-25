@@ -18,33 +18,19 @@ from collections import defaultdict
 from .models import Cluster, Migration, MigrationPlan, MigrationStep, Solution
 
 
-def _get_pve_affinity_group(vm_name: str, cluster: Cluster) -> set[str]:
-    """Finds all VMs belonging to the same PVE native affinity group as vm_name."""
-    group = {vm_name}
-    changed = True
-    while changed:
-        changed = False
-        for rule in cluster.constraints.affinity:
-            if rule.get("origin") != "pve":
-                continue
-            vms_in_rule = set(rule["vms"])
-            if group & vms_in_rule:
-                new_members = vms_in_rule - group
-                if new_members:
-                    group.update(new_members)
-                    changed = True
-    return group
-
-
-def _get_affinity_group(vm_name: str, cluster: Cluster) -> set[str]:
+def _get_affinity_group(vm_name: str, cluster: Cluster, origin: str | None = None) -> set[str]:
     """Finds all VMs belonging to the same affinity group(s) as vm_name.
-    This includes both PVE and internal rules for the purpose of temp-move grouping.
+
+    If origin is given (e.g. 'pve'), only rules with that origin are considered.
+    Without origin, all affinity rules are included (used for temp-move grouping).
     """
     group = {vm_name}
     changed = True
     while changed:
         changed = False
         for rule in cluster.constraints.affinity:
+            if origin is not None and rule.get("origin") != origin:
+                continue
             vms_in_rule = set(rule["vms"])
             if group & vms_in_rule:
                 new_members = vms_in_rule - group
@@ -143,7 +129,7 @@ def plan_migrations(
     pve_groups: dict[str, set[str]] = {}
     for vm in cluster.vms:
         if vm.name not in pve_groups:
-            group = _get_pve_affinity_group(vm.name, cluster)
+            group = _get_affinity_group(vm.name, cluster, origin="pve")
             for member in group:
                 pve_groups[member] = group
 
@@ -167,17 +153,16 @@ def plan_migrations(
 
     for vm_name, mig in mig_map.items():
         vm = vm_by_name[vm_name]
-        
+        is_capacity_block = node_mem.get(mig.target, 0) - node_used[mig.target] < vm.memory
+
         # Who is currently blocking target node?
         for res in node_residents[mig.target]:
             if res == vm_name: continue
-            
-            # Special Case: PVE Anti-Affinity
-            # If res is an anti-affine partner, we can land on its node ONLY IF it migrates AWAY.
-            # However, if we move to res's node, and res moves to OUR node, we have a cycle.
+
+            # PVE Anti-Affinity: we may only land on res's node once res has vacated.
+            # Capacity: we may only land once enough space is freed.
             is_pve_aa_block = res in pve_aa_partners.get(vm_name, set())
-            is_capacity_block = node_mem.get(mig.target, 0) - node_used[mig.target] < vm.memory
-            
+
             if is_capacity_block or is_pve_aa_block:
                 # If res is moving AWAY, we depend on it to clear the spot.
                 if res in mig_map and mig_map[res].source == mig.target:
@@ -261,8 +246,6 @@ def plan_migrations(
                     # And remove its own dependencies
                     deps.pop(gvm_name, None)
                 cycle_broken = True; break
-            else:
-                pass 
         if not cycle_broken:
             return MigrationPlan([], dependency_edges, [], False, sorted(all_cycle))
 
@@ -301,17 +284,13 @@ def plan_migrations(
             can_move_group = True
             
             # Find all members of this group that are in the queue
-            queue_indices = []
             for j, (q_src, q_dst, q_vn, q_is_temp) in enumerate(queue):
                 if q_vn in group and q_vn not in skip_vms:
-                    # Check dependencies for this member
-                    if deps.get(q_vn): 
+                    if deps.get(q_vn):
                         can_move_group = False; break
-                    # Check target capacity
                     if node_mem.get(q_dst, 0) - current_node_used[q_dst] < vm_by_name[q_vn].memory:
                         can_move_group = False; break
                     group_migs.append((j, Migration(q_vn, q_src, q_dst)))
-                    queue_indices.append(j)
             
             if not can_move_group or not group_migs:
                 continue

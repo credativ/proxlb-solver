@@ -90,6 +90,29 @@ def _initial_load_gap(cluster: Cluster) -> float:
     placements = {vm.name: vm.node for vm in cluster.vms}
     return _compute_load_gap(cluster, placements)
 
+# ── Rule-Origin Helpers ──
+
+def _vm_rule_origins(vm_name: str, cluster) -> str:
+    """Return a comma-separated string of rule origins for a VM (e.g. 'plb', 'pve', or 'none')."""
+    origins: set[str] = set()
+    for rule in cluster.constraints.affinity:
+        if vm_name in rule["vms"]:
+            origins.add(rule.get("origin", "plb"))
+    for rule in cluster.constraints.anti_affinity:
+        if vm_name in rule["vms"]:
+            origins.add(rule.get("origin", "plb"))
+    return ",".join(sorted(origins)) if origins else "none"
+
+
+def _step_is_pve_atomic(step, cluster) -> bool:
+    """Return True if this migration step contains a PVE native affinity group."""
+    for m in step.migrations:
+        for rule in cluster.constraints.affinity:
+            if m.vm in rule["vms"] and rule.get("origin") == "pve":
+                return True
+    return False
+
+
 # ── Reporting ──
 
 def print_report(cluster: Cluster, solution: Solution):
@@ -156,19 +179,8 @@ def print_report(cluster: Cluster, solution: Solution):
         m_table.add_column("To")
         m_table.add_column("Priority")
         m_table.add_column("Rule Origin")
-        
-        def get_origins(vm_name):
-            origins = set()
-            for rule in cluster.constraints.affinity:
-                if vm_name in rule["vms"]:
-                    origins.add(rule.get("origin", "plb"))
-            for rule in cluster.constraints.anti_affinity:
-                if vm_name in rule["vms"]:
-                    origins.add(rule.get("origin", "plb"))
-            return ",".join(sorted(origins)) if origins else "none"
-
         for m in solution.migrations:
-            m_table.add_row(m.vm, m.source, m.target, str(vm_map[m.vm].priority), get_origins(m.vm))
+            m_table.add_row(m.vm, m.source, m.target, str(vm_map[m.vm].priority), _vm_rule_origins(m.vm, cluster))
         console.print(m_table)
     else:
         console.print("[green]Cluster is already balanced.[/green]")
@@ -462,20 +474,9 @@ def write_markdown_report(
             L.append("| VM | From | To | Priority | Rule Origin |")
             L.append("|----|------|----|----------|-------------|")
             vm_map = {v.name: v for v in cluster.vms}
-
-            def get_origins(vm_name):
-                origins = set()
-                for rule in cluster.constraints.affinity:
-                    if vm_name in rule["vms"]:
-                        origins.add(rule.get("origin", "plb"))
-                for rule in cluster.constraints.anti_affinity:
-                    if vm_name in rule["vms"]:
-                        origins.add(rule.get("origin", "plb"))
-                return ",".join(sorted(origins)) if origins else "none"
-
             for m in solution.migrations:
                 prio = vm_map[m.vm].priority
-                L.append(f"| {m.vm} | {m.source} | {m.target} | {prio} | {get_origins(m.vm)} |")
+                L.append(f"| {m.vm} | {m.source} | {m.target} | {prio} | {_vm_rule_origins(m.vm, cluster)} |")
             L.append("")
 
             # Migration plan steps
@@ -485,13 +486,7 @@ def write_markdown_report(
                 L.append("")
                 for step in plan.steps:
                     par = " (parallel)" if step.parallel else ""
-                    # Check if this step contains a PVE group
-                    origins = set()
-                    for m in step.migrations:
-                        for rule in cluster.constraints.affinity:
-                            if m.vm in rule["vms"] and rule.get("origin") == "pve":
-                                origins.add("pve")
-                    atomic = " (atomic group)" if "pve" in origins else ""
+                    atomic = " (atomic group)" if _step_is_pve_atomic(step, cluster) else ""
                     L.append(f"**Step {step.step}**{par}{atomic}:")
                     for m in step.migrations:
                         L.append(f"- {m.vm}: {m.source} → {m.target}")
@@ -724,21 +719,10 @@ a:hover { text-decoration: underline; }
         if solution.migrations:
             h.append("<h4>Migrations</h4>")
             h.append("<table><tr><th>VM</th><th>From</th><th>To</th><th>Memory</th><th>Priority</th><th>Rule Origin</th></tr>")
-            
-            def get_origins(vm_name):
-                origins = set()
-                for rule in cluster.constraints.affinity:
-                    if vm_name in rule["vms"]:
-                        origins.add(rule.get("origin", "plb"))
-                for rule in cluster.constraints.anti_affinity:
-                    if vm_name in rule["vms"]:
-                        origins.add(rule.get("origin", "plb"))
-                return ",".join(sorted(origins)) if origins else "none"
-
             for m in solution.migrations:
                 vm = vm_map[m.vm]
                 h.append(f'<tr><td>{m.vm}</td><td>{m.source}</td><td>{m.target}</td>'
-                         f'<td>{_fmt_bytes(vm.memory)}</td><td>{vm.priority}</td><td>{get_origins(m.vm)}</td></tr>')
+                         f'<td>{_fmt_bytes(vm.memory)}</td><td>{vm.priority}</td><td>{_vm_rule_origins(m.vm, cluster)}</td></tr>')
             h.append("</table>")
 
             # Execution plan
@@ -747,14 +731,7 @@ a:hover { text-decoration: underline; }
                 h.append("<table><tr><th>Step</th><th>VM</th><th>From</th><th>To</th><th>Parallel</th><th>Type</th></tr>")
                 for step in plan.steps:
                     first = True
-                    # Check if this step contains a PVE group
-                    origins = set()
-                    for m in step.migrations:
-                        for rule in cluster.constraints.affinity:
-                            if m.vm in rule["vms"] and rule.get("origin") == "pve":
-                                origins.add("pve")
-                    step_type = "atomic group" if "pve" in origins else "individual"
-                    
+                    step_type = "atomic group" if _step_is_pve_atomic(step, cluster) else "individual"
                     for m in step.migrations:
                         step_cell = f'{step.step}' if first else ""
                         par_cell = ("Yes" if step.parallel else "No") if first else ""
