@@ -294,12 +294,11 @@ def _check_expectations(
         initial = _initial_load_gap(cluster)
         final = _compute_load_gap(cluster, solution.placements)
         improved = final < initial or initial == 0
+        detail = f"{initial*100:.1f}% → {final*100:.1f}%"
         if expect.spread_improved:
-            checks.append(("spread_improved", "True", improved,
-                           f"{initial:.3f} → {final:.3f}"))
+            checks.append(("spread_improved", "True", improved, detail))
         else:
-            checks.append(("spread_improved", "False", not improved,
-                           f"{initial:.3f} → {final:.3f}"))
+            checks.append(("spread_improved", "False", not improved, detail))
 
     # Max migrations
     if expect.max_migrations is not None:
