@@ -89,6 +89,8 @@ def _allowed_temp_nodes(
     current_node_vms: dict[str, set[str]] = defaultdict(set)
     for v in cluster.vms:
         current_node_vms[v.node].add(v.name)
+    
+    mig_map = {m.vm: m for m in solution.migrations}
 
     for vm_name in vm_group:
         for rule in cons.anti_affinity:
@@ -97,8 +99,12 @@ def _allowed_temp_nodes(
                 external_partners = set(rule["vms"]) - vm_group
                 for node_name in list(candidates):
                     # If any external partner is currently on that node, we can't park there
-                    if external_partners & current_node_vms.get(node_name, set()):
-                        candidates.discard(node_name)
+                    # UNLESS that partner is ALSO migrating away from that node.
+                    partners_on_node = external_partners & current_node_vms.get(node_name, set())
+                    for p in partners_on_node:
+                        # If partner p is staying on node_name, it's a hard block.
+                        if p not in mig_map or mig_map[p].source != node_name:
+                            candidates.discard(node_name); break
 
     # 3. RAM and CPU capacity check for the whole group
     group_mem = sum(v.memory for v in vms_in_group)
@@ -175,9 +181,24 @@ def plan_migrations(
             if is_capacity_block or is_pve_aa_block:
                 # If res is moving AWAY, we depend on it to clear the spot.
                 if res in mig_map and mig_map[res].source == mig.target:
+                    # Special Case: PVE Anti-Affinity.
+                    # Proxmox 9.0 strictly forbids shared nodes during moves.
+                    # HOWEVER, if we are swapping (A->B, B->A), adding a mutual
+                    # dependency creates an unbreakable cycle.
+                    # In a real cluster, PVE allows this by one moving out then the other in.
+                    # ProxLB Planner should NOT add a dependency for the AA rule 
+                    # if it's a direct swap, relying on serialization instead.
+                    if is_pve_aa_block and mig_map[res].target == vm.node:
+                        # Direct swap between AA partners.
+                        # Don't add dependency, let them move in separate steps.
+                        continue
+                    
                     # If res is in the same PVE affinity group as vm_name, it's not a dependency
                     if res in pve_groups.get(vm_name, set()):
                         continue
+                    
+                    # Otherwise, we MUST wait for res to vacate.
+                    # This applies to BOTH capacity and PVE anti-affinity.
                     deps[vm_name].add(res)
 
     # Cross-link dependencies for PVE groups: if A depends on B, 
