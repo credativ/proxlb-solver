@@ -671,7 +671,7 @@ a:hover { text-decoration: underline; }
     # Summary
     h.append('<div id="summary">')
     h.append("<h1>ProxLB CP-SAT Solver Report</h1>")
-    h.append(f'<p class="meta">Generated: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}</p>')
+    h.append(f'<p class="meta">Generated: {datetime.now(timezone.utc).astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")}</p>')
     h.append('<div class="summary-grid">')
     h.append(f'<div class="stat"><div class="num">{len(results)}</div><div class="label">Scenarios</div></div>')
     h.append(f'<div class="stat"><div class="num ok">{all_passed_count}</div><div class="label">Passed</div></div>')
