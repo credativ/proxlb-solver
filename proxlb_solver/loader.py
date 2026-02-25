@@ -104,8 +104,8 @@ def load_scenario(path: str | Path) -> Cluster:
             ignore_list.append(entry)
 
     constraints = Constraints(
-        affinity=[{**r, "hard": r.get("hard", True)} for r in cd.get("affinity", [])],
-        anti_affinity=[{**r, "hard": r.get("hard", True)} for r in cd.get("anti_affinity", [])],
+        affinity=[{**r, "hard": r.get("hard", True), "origin": r.get("origin", "plb")} for r in cd.get("affinity", [])],
+        anti_affinity=[{**r, "hard": r.get("hard", True), "origin": r.get("origin", "plb")} for r in cd.get("anti_affinity", [])],
         pin=cd.get("pin", []),
         ignore=ignore_list,
     )

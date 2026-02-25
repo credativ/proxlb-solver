@@ -155,8 +155,20 @@ def print_report(cluster: Cluster, solution: Solution):
         m_table.add_column("From")
         m_table.add_column("To")
         m_table.add_column("Priority")
+        m_table.add_column("Rule Origin")
+        
+        def get_origins(vm_name):
+            origins = set()
+            for rule in cluster.constraints.affinity:
+                if vm_name in rule["vms"]:
+                    origins.add(rule.get("origin", "plb"))
+            for rule in cluster.constraints.anti_affinity:
+                if vm_name in rule["vms"]:
+                    origins.add(rule.get("origin", "plb"))
+            return ",".join(sorted(origins)) if origins else "none"
+
         for m in solution.migrations:
-            m_table.add_row(m.vm, m.source, m.target, str(vm_map[m.vm].priority))
+            m_table.add_row(m.vm, m.source, m.target, str(vm_map[m.vm].priority), get_origins(m.vm))
         console.print(m_table)
     else:
         console.print("[green]Cluster is already balanced.[/green]")
@@ -447,12 +459,23 @@ def write_markdown_report(
         if solution.migrations:
             L.append("#### Migrations")
             L.append("")
-            L.append("| VM | From | To | Priority |")
-            L.append("|----|------|----|----------|")
+            L.append("| VM | From | To | Priority | Rule Origin |")
+            L.append("|----|------|----|----------|-------------|")
             vm_map = {v.name: v for v in cluster.vms}
+
+            def get_origins(vm_name):
+                origins = set()
+                for rule in cluster.constraints.affinity:
+                    if vm_name in rule["vms"]:
+                        origins.add(rule.get("origin", "plb"))
+                for rule in cluster.constraints.anti_affinity:
+                    if vm_name in rule["vms"]:
+                        origins.add(rule.get("origin", "plb"))
+                return ",".join(sorted(origins)) if origins else "none"
+
             for m in solution.migrations:
                 prio = vm_map[m.vm].priority
-                L.append(f"| {m.vm} | {m.source} | {m.target} | {prio} |")
+                L.append(f"| {m.vm} | {m.source} | {m.target} | {prio} | {get_origins(m.vm)} |")
             L.append("")
 
             # Migration plan steps
@@ -462,7 +485,14 @@ def write_markdown_report(
                 L.append("")
                 for step in plan.steps:
                     par = " (parallel)" if step.parallel else ""
-                    L.append(f"**Step {step.step}**{par}:")
+                    # Check if this step contains a PVE group
+                    origins = set()
+                    for m in step.migrations:
+                        for rule in cluster.constraints.affinity:
+                            if m.vm in rule["vms"] and rule.get("origin") == "pve":
+                                origins.add("pve")
+                    atomic = " (atomic group)" if "pve" in origins else ""
+                    L.append(f"**Step {step.step}**{par}{atomic}:")
                     for m in step.migrations:
                         L.append(f"- {m.vm}: {m.source} → {m.target}")
                     L.append("")
@@ -693,24 +723,44 @@ a:hover { text-decoration: underline; }
         # Migrations
         if solution.migrations:
             h.append("<h4>Migrations</h4>")
-            h.append("<table><tr><th>VM</th><th>From</th><th>To</th><th>Memory</th><th>Priority</th></tr>")
+            h.append("<table><tr><th>VM</th><th>From</th><th>To</th><th>Memory</th><th>Priority</th><th>Rule Origin</th></tr>")
+            
+            def get_origins(vm_name):
+                origins = set()
+                for rule in cluster.constraints.affinity:
+                    if vm_name in rule["vms"]:
+                        origins.add(rule.get("origin", "plb"))
+                for rule in cluster.constraints.anti_affinity:
+                    if vm_name in rule["vms"]:
+                        origins.add(rule.get("origin", "plb"))
+                return ",".join(sorted(origins)) if origins else "none"
+
             for m in solution.migrations:
                 vm = vm_map[m.vm]
                 h.append(f'<tr><td>{m.vm}</td><td>{m.source}</td><td>{m.target}</td>'
-                         f'<td>{_fmt_bytes(vm.memory)}</td><td>{vm.priority}</td></tr>')
+                         f'<td>{_fmt_bytes(vm.memory)}</td><td>{vm.priority}</td><td>{get_origins(m.vm)}</td></tr>')
             h.append("</table>")
 
             # Execution plan
             if plan and plan.steps:
                 h.append("<h4>Execution Plan</h4>")
-                h.append("<table><tr><th>Step</th><th>VM</th><th>From</th><th>To</th><th>Parallel</th></tr>")
+                h.append("<table><tr><th>Step</th><th>VM</th><th>From</th><th>To</th><th>Parallel</th><th>Type</th></tr>")
                 for step in plan.steps:
                     first = True
+                    # Check if this step contains a PVE group
+                    origins = set()
+                    for m in step.migrations:
+                        for rule in cluster.constraints.affinity:
+                            if m.vm in rule["vms"] and rule.get("origin") == "pve":
+                                origins.add("pve")
+                    step_type = "atomic group" if "pve" in origins else "individual"
+                    
                     for m in step.migrations:
                         step_cell = f'{step.step}' if first else ""
                         par_cell = ("Yes" if step.parallel else "No") if first else ""
+                        type_cell = step_type if first else ""
                         h.append(f'<tr><td>{step_cell}</td><td>{m.vm}</td>'
-                                 f'<td>{m.source}</td><td>{m.target}</td><td>{par_cell}</td></tr>')
+                                 f'<td>{m.source}</td><td>{m.target}</td><td>{par_cell}</td><td>{type_cell}</td></tr>')
                         first = False
                 h.append("</table>")
                 if plan.temp_moves:

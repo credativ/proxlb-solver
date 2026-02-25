@@ -1,0 +1,46 @@
+name: "ProxLB Affinity — Stepped Migration"
+description: >
+  Demonstrates that internal ProxLB affinity rules (origin: plb) are
+  NOT handled atomically by the planner. With max_parallel_migrations: 1,
+  the VMs are moved in separate steps, allowing for more granular
+  control over the migration process.
+
+balancing:
+  method: memory
+  balanciness: 5
+  max_parallel_migrations: 1
+
+nodes:
+  node-A:
+    cpu_total: 16
+    memory_total_gb: 64
+  node-B:
+    cpu_total: 16
+    memory_total_gb: 64
+
+vms:
+  vm-1:
+    node: node-A
+    cpu: 2
+    memory_gb: 8
+  vm-2:
+    node: node-A
+    cpu: 2
+    memory_gb: 8
+
+constraints:
+  affinity:
+    - name: "plb-internal-group"
+      vms: ["vm-1", "vm-2"]
+      origin: "plb"
+      hard: true
+
+evacuate_node: "node-A"
+
+expect:
+  feasible: true
+  max_migrations: 2
+  path_feasible: true
+  placements:
+    vm-1: "node-B"
+    vm-2: "node-B"

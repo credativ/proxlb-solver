@@ -1,0 +1,54 @@
+name: "PVE Anti-Affinity — Ordered Swap"
+description: >
+  Demonstrates that native PVE anti-affinity rules (origin: pve) force
+  a specific migration sequence or temp-moves even if capacity is
+  plentiful. If vm-a and vm-b swap nodes and have native anti-affinity,
+  the planner must ensure they are never on the same node during the 
+  transition. In this scenario, capacity is ample, but the anti-affinity
+  forces a dependency that leads to a temp move or serialized steps
+  if a spare node is available.
+
+balancing:
+  method: memory
+  balanciness: 5
+  max_parallel_migrations: 2
+
+nodes:
+  node-A:
+    cpu_total: 16
+    memory_total_gb: 100
+  node-B:
+    cpu_total: 16
+    memory_total_gb: 100
+  node-C:
+    cpu_total: 16
+    memory_total_gb: 100
+
+vms:
+  vm-a:
+    node: node-A
+    cpu: 2
+    memory_gb: 8
+  vm-b:
+    node: node-B
+    cpu: 2
+    memory_gb: 8
+
+constraints:
+  anti_affinity:
+    - name: "pve-aa-group"
+      vms: ["vm-a", "vm-b"]
+      origin: "pve"
+      hard: true
+  pin:
+    - vm: "vm-a"
+      nodes: ["node-B"]
+    - vm: "vm-b"
+      nodes: ["node-A"]
+
+expect:
+  feasible: true
+  path_feasible: true
+  placements:
+    vm-a: "node-B"
+    vm-b: "node-A"

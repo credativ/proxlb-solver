@@ -50,6 +50,7 @@ def from_proxlb_data(proxlb_data: Dict[str, Any]) -> Cluster:
 
     # 3. Map Guests (VMs/Containers) and extract implicit constraints
     vms = []
+    # rules: {(name, origin): [vm_names]}
     affinity_map = defaultdict(list)
     anti_affinity_map = defaultdict(list)
     pin_rules = []
@@ -70,9 +71,30 @@ def from_proxlb_data(proxlb_data: Dict[str, Any]) -> Cluster:
             vm_type=gd.get("type", "vm")
         ))
 
-        # Map group memberships
-        for group in gd.get("affinity_groups", []): affinity_map[group].append(name)
-        for group in gd.get("anti_affinity_groups", []): anti_affinity_map[group].append(name)
+        # Map group memberships with origin tracking
+        # PVE Native HA Rules
+        for rule in gd.get("ha_rules", []):
+            rule_id = rule["rule"]
+            if rule["type"] == "affinity":
+                affinity_map[(rule_id, "pve")].append(name)
+            else:
+                anti_affinity_map[(rule_id, "pve")].append(name)
+
+        # ProxLB Tags
+        for tag in gd.get("tags", []):
+            if tag.startswith("plb_affinity"):
+                affinity_map[(tag, "plb")].append(name)
+            elif tag.startswith("plb_anti_affinity"):
+                anti_affinity_map[(tag, "plb")].append(name)
+        
+        # ProxLB Pools
+        for pool in gd.get("pools", []):
+            pool_cfg = meta.get("balancing", {}).get("pools", {}).get(pool)
+            if pool_cfg:
+                if pool_cfg.get("type") == "affinity":
+                    affinity_map[(pool, "plb")].append(name)
+                elif pool_cfg.get("type") == "anti-affinity":
+                    anti_affinity_map[(pool, "plb")].append(name)
             
         # Map explicit pins
         if gd.get("node_relationships"):
@@ -84,8 +106,14 @@ def from_proxlb_data(proxlb_data: Dict[str, Any]) -> Cluster:
     # 4. Filter and build Constraints object
     # Only keep groups with more than 1 member
     constraints = Constraints(
-        affinity=[{"name": k, "vms": v, "hard": True} for k, v in affinity_map.items() if len(v) > 1],
-        anti_affinity=[{"name": k, "vms": v, "hard": True} for k, v in anti_affinity_map.items() if len(v) > 1],
+        affinity=[
+            {"name": k[0], "origin": k[1], "vms": v, "hard": True} 
+            for k, v in affinity_map.items() if len(v) > 1
+        ],
+        anti_affinity=[
+            {"name": k[0], "origin": k[1], "vms": v, "hard": True} 
+            for k, v in anti_affinity_map.items() if len(v) > 1
+        ],
         pin=pin_rules,
         ignore=ignore_list
     )

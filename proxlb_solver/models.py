@@ -64,7 +64,14 @@ class VM:
 
 @dataclass(frozen=True)
 class Constraints:
-    """Container for placement rules."""
+    """Container for placement rules.
+    
+    Rules (affinity, anti_affinity) are dictionaries with:
+    - name: str
+    - vms: list[str]
+    - hard: bool (default True)
+    - origin: str (e.g. 'pve' for native HA rules, 'plb' for internal rules)
+    """
     affinity: list[dict] = field(default_factory=list)
     anti_affinity: list[dict] = field(default_factory=list)
     pin: list[dict] = field(default_factory=list)

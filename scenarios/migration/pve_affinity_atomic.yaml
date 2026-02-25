@@ -1,0 +1,46 @@
+name: "PVE Affinity — Atomic Migration"
+description: >
+  Demonstrates that native PVE affinity rules (origin: pve) are handled
+  atomically by the planner. Even with max_parallel_migrations: 1,
+  both VMs in the affinity group are moved in a single step because
+  Proxmox enforces this automatically.
+
+balancing:
+  method: memory
+  balanciness: 5
+  max_parallel_migrations: 1
+
+nodes:
+  node-A:
+    cpu_total: 16
+    memory_total_gb: 64
+  node-B:
+    cpu_total: 16
+    memory_total_gb: 64
+
+vms:
+  vm-1:
+    node: node-A
+    cpu: 2
+    memory_gb: 8
+  vm-2:
+    node: node-A
+    cpu: 2
+    memory_gb: 8
+
+constraints:
+  affinity:
+    - name: "pve-core-group"
+      vms: ["vm-1", "vm-2"]
+      origin: "pve"
+      hard: true
+
+evacuate_node: "node-A"
+
+expect:
+  feasible: true
+  max_migrations: 2
+  path_feasible: true
+  placements:
+    vm-1: "node-B"
+    vm-2: "node-B"
