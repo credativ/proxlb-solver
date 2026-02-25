@@ -86,6 +86,18 @@ Violations result in `INFEASIBLE`.
 - **Maintenance**: Nodes in maintenance mode are forbidden targets.
 - **Hard Rules**: Affinity/Anti-Affinity marked as `hard: true`.
 
+### Rule Origins & Specialized Handling
+The solver distinguishes between rules based on their `origin`:
+
+| Origin | Type | Handling | Rationale |
+| :--- | :--- | :--- | :--- |
+| `pve` | Native HA | **Atomic / Strict** | Proxmox enforces these rules automatically. |
+| `plb` | Internal Tags | **Granular / Soft** | ProxLB manages these; allows flexible transitions. |
+
+1.  **PVE Affinity (Atomic)**: Members of a native Proxmox affinity group are moved in the **same execution step**, even if this exceeds `max_parallel_migrations`. This prevents Proxmox from automatically pulling partners into a node that might be over capacity during a multi-step move.
+2.  **PVE Anti-Affinity (Strict Ordering)**: If two VMs have native anti-affinity, the planner ensures they **never share a node** even for a split second. The partner must fully vacate the target node before the other VM is allowed to land.
+3.  **Internal Rules (Flexible)**: Internal affinity groups (`plb`) are scheduled member-by-member to respect safety limits (`max_parallel_migrations`), providing better control over network and storage load.
+
 ### Soft Constraints (Preferred)
 Violated only if resources are exhausted.
 - **Soft Rules**: Affinity/Anti-Affinity marked as `hard: false`.
