@@ -93,15 +93,23 @@ def _initial_load_gap(cluster: Cluster) -> float:
 # ── Rule-Origin Helpers ──
 
 def _vm_rule_origins(vm_name: str, cluster) -> str:
-    """Return a comma-separated string of rule origins for a VM (e.g. 'plb', 'pve', or 'none')."""
-    origins: set[str] = set()
+    """Return a comma-separated list of affinity/anti-affinity rule names for a VM.
+
+    Format: 'rule-name (origin)', e.g. 'pve-core-group (pve), plb-tag (plb)'.
+    Returns 'none' if the VM belongs to no rules.
+    """
+    entries: list[str] = []
     for rule in cluster.constraints.affinity:
         if vm_name in rule["vms"]:
-            origins.add(rule.get("origin", "plb"))
+            name = rule.get("name", "?")
+            origin = rule.get("origin", "plb")
+            entries.append(f"{name} ({origin})")
     for rule in cluster.constraints.anti_affinity:
         if vm_name in rule["vms"]:
-            origins.add(rule.get("origin", "plb"))
-    return ",".join(sorted(origins)) if origins else "none"
+            name = rule.get("name", "?")
+            origin = rule.get("origin", "plb")
+            entries.append(f"{name} ({origin})")
+    return ", ".join(sorted(entries)) if entries else "none"
 
 
 def _step_is_pve_atomic(step, cluster) -> bool:
@@ -467,6 +475,25 @@ def write_markdown_report(
             L.append(f"| {node.name} | {before*100:.1f}% | {after*100:.1f}% |")
         L.append("")
 
+        # Constraints
+        cons = cluster.constraints
+        if cons.affinity or cons.anti_affinity or cons.pin or cons.ignore:
+            L.append("#### Constraints")
+            L.append("")
+            for rule in cons.affinity:
+                origin = rule.get("origin", "plb")
+                hard = "hard" if rule.get("hard", True) else "soft"
+                L.append(f"- **Affinity** `{rule['name']}` ({origin}, {hard}): {', '.join(rule['vms'])}")
+            for rule in cons.anti_affinity:
+                origin = rule.get("origin", "plb")
+                hard = "hard" if rule.get("hard", True) else "soft"
+                L.append(f"- **Anti-Affinity** `{rule['name']}` ({origin}, {hard}): {', '.join(rule['vms'])}")
+            for rule in cons.pin:
+                L.append(f"- **Pin** `{rule['vm']}` → {', '.join(rule['nodes'])}")
+            if cons.ignore:
+                L.append(f"- **Ignore**: {', '.join(cons.ignore)}")
+            L.append("")
+
         # Migrations
         if solution.migrations:
             L.append("#### Migrations")
@@ -482,7 +509,10 @@ def write_markdown_report(
             # Migration plan steps
             plan = migration_plans.get(scenario_path) if migration_plans else None
             if plan and plan.steps:
+                total_cmds = sum(len(s.migrations) for s in plan.steps)
                 L.append("#### Execution Plan")
+                L.append("")
+                L.append(f"_{total_cmds} Proxmox migration command(s) in {len(plan.steps)} step(s)._")
                 L.append("")
                 for step in plan.steps:
                     par = " (parallel)" if step.parallel else ""
@@ -715,6 +745,27 @@ a:hover { text-decoration: underline; }
                      f'<td><div class="bar-bg"><div class="bar-fill" style="width:{min(after*100,100):.0f}%;background:{color}"></div></div></td></tr>')
         h.append("</table>")
 
+        # Constraints
+        cons = cluster.constraints
+        if cons.affinity or cons.anti_affinity or cons.pin or cons.ignore:
+            h.append("<h4>Constraints</h4>")
+            h.append("<ul>")
+            for rule in cons.affinity:
+                origin = rule.get("origin", "plb")
+                hard = "hard" if rule.get("hard", True) else "soft"
+                h.append(f'<li><strong>Affinity</strong> <code>{rule["name"]}</code> '
+                         f'<span class="tag tag-info">{origin}</span> {hard}: {", ".join(rule["vms"])}</li>')
+            for rule in cons.anti_affinity:
+                origin = rule.get("origin", "plb")
+                hard = "hard" if rule.get("hard", True) else "soft"
+                h.append(f'<li><strong>Anti-Affinity</strong> <code>{rule["name"]}</code> '
+                         f'<span class="tag tag-info">{origin}</span> {hard}: {", ".join(rule["vms"])}</li>')
+            for rule in cons.pin:
+                h.append(f'<li><strong>Pin</strong> <code>{rule["vm"]}</code> &rarr; {", ".join(rule["nodes"])}</li>')
+            if cons.ignore:
+                h.append(f'<li><strong>Ignore</strong>: {", ".join(cons.ignore)}</li>')
+            h.append("</ul>")
+
         # Migrations
         if solution.migrations:
             h.append("<h4>Migrations</h4>")
@@ -727,10 +778,13 @@ a:hover { text-decoration: underline; }
 
             # Execution plan
             if plan and plan.steps:
+                total_cmds = sum(len(s.migrations) for s in plan.steps)
                 h.append("<h4>Execution Plan</h4>")
+                h.append(f'<p class="meta">{total_cmds} Proxmox migration command(s) in {len(plan.steps)} step(s). '
+                         f'Each VM row is one API call to Proxmox.</p>')
                 h.append("<table><tr><th>Step</th><th>VM</th><th>From</th><th>To</th><th>Parallel</th><th>Type</th></tr>")
                 for step in plan.steps:
-                    step_type = "atomic group" if _step_is_pve_atomic(step, cluster) else "individual"
+                    step_type = "pve group" if _step_is_pve_atomic(step, cluster) else "individual"
                     par = "Yes" if step.parallel else "No"
                     n = len(step.migrations)
                     for i, m in enumerate(step.migrations):
