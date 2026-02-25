@@ -135,7 +135,44 @@ This produces:
 - `results.md`: Markdown summary.
 - `results.xml`: JUnit XML for CI.
 
-### Live Simulation
+### Administrator Guide: Configuration & Defaults
+
+The ProxLB Solver is tuned for **Stability over Agility** by default. This guide explains the key parameters and why specific defaults were chosen.
+
+### 1. Operational Safety (The "Quiet Cluster" approach)
+
+Moving VMs creates transient load on the network, storage, and CPU. These settings protect your cluster from migration-induced instability:
+
+*   **`max_node_inflow` (Default: 1)**: This is the most important safety setting. It ensures that only one VM at a time can migrate *into* a host. During the final switchover of a live migration, a VM briefly occupies resources on both source and target. Restricting inflow to 1 prevents memory or CPU peaks that could trigger OOM or performance degradation on the target host.
+*   **`max_parallel_migrations` (Default: 2)**: Limits how many migrations can happen simultaneously across the entire cluster. Even with 10 nodes, we recommend starting with 2 to keep the management network and storage throughput predictable.
+*   **`balanciness` (Default: 3 - Moderate)**: 
+    *   Level 1-2: Only moves VMs for maintenance or hard rule violations.
+    *   Level 3: Rebalances only if the load gap exceeds 15%. This prevents "ping-pong" migrations where VMs move back and forth due to minor metric fluctuations.
+    *   Level 5: Chases perfect balance, which may cause frequent, low-value migrations.
+
+### 2. Resource Balancing Strategy
+
+*   **`method` (Default: `memory`)**: RAM is usually the hardest bottleneck in Proxmox clusters. Running out of RAM leads to swapping or OOM kills. We recommend starting with memory balancing before exploring CPU or Smart modes.
+*   **`cpu_overcommit` (Default: 2.0)**: Allows you to assign more vCPUs than physical cores exist. 2.0 is a conservative industry standard. Increase this only if your workloads are mostly idle.
+
+### 3. Weighted Optimization (Smart Modes)
+
+If using `cpu_smart`, `memory_smart`, or `global_smart`, the solver uses a weighted hierarchy:
+
+*   **PSI vs. Usage**: We weight **PSI (Stall time) higher (2x)** than raw usage (1x). 
+    *   *Why?* High usage is often intentional (throughput), but high PSI is always a problem (contention). The solver will prioritize moving a small VM that is "thrashing" over a large VM that is simply busy but performing well.
+*   **Global Pool Priority**: In `global_smart` mode, we weight **RAM (10)** higher than **CPU (5)** and **IO (1)**.
+    *   *Why?* RAM shortages are fatal. CPU shortages just slow things down. IO is often bottlenecked by the storage backend itself rather than node placement.
+
+### 4. VM Priorities (Shares)
+
+You can assign a `priority` (1-3) to your VMs:
+*   **Priority 3 (High)**: Critical production services.
+*   **Priority 2 (Normal)**: Default.
+*   **Priority 1 (Low)**: Test/Dev environments.
+The solver treats Priority 3 VMs as having a 3x larger footprint than they actually do. This "forces" the solver to place them on the most idle nodes, effectively reserving the best hardware for your most important guests.
+
+## Live Simulation
 Test the solver safely against your real cluster:
 
 1. **Snapshot Data**:

@@ -356,6 +356,8 @@ def test_max_parallel_splits_layer():
     )
 
     # Without limit: all 4 in one parallel step
+    import dataclasses
+    cluster = dataclasses.replace(cluster, balancing=dataclasses.replace(cluster.balancing, max_parallel_migrations=100))
     unlimited = plan_migrations(cluster, sol)
     assert len(unlimited.steps) == 1
     assert len(unlimited.steps[0].migrations) == 4
@@ -436,6 +438,8 @@ def test_max_parallel_none_is_unlimited():
         stats=_make_stats(migration_count=3),
     )
 
+    import dataclasses
+    cluster = dataclasses.replace(cluster, balancing=dataclasses.replace(cluster.balancing, max_parallel_migrations=100))
     result = plan_migrations(cluster, sol, max_parallel=None)
     assert len(result.steps) == 1
     assert len(result.steps[0].migrations) == 3

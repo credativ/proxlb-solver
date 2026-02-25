@@ -65,44 +65,44 @@ class VM:
 @dataclass(frozen=True)
 class Constraints:
     """Container for placement rules."""
-    # List of rules like {'name': 'group1', 'vms': ['vm1', 'vm2'], 'hard': True}
     affinity: list[dict] = field(default_factory=list)
     anti_affinity: list[dict] = field(default_factory=list)
-    
-    # List of pins like {'vm': 'vm1', 'nodes': ['nodeA', 'nodeB']}
     pin: list[dict] = field(default_factory=list)
-    
-    # List of VM names that the solver should never move
     ignore: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
 class Balancing:
     """Configuration for the balancing algorithm."""
-    method: str = "memory" # Balancing metric: memory, cpu, cpu_smart, global_smart, etc.
-    balanciness: int = 3   # Aggressiveness level (1-5), similar to VMware DRS
-    cpu_overcommit: float = 2.0 # Allowed vCPU-to-Core ratio
+    method: str = "memory"      # Recommended default: RAM is the most critical resource.
+    balanciness: int = 3        # 1-5 level. 3 (Moderate) avoids excessive 'ping-pong' moves.
+    cpu_overcommit: float = 2.0 # Standard industry default for safe overbooking.
     
     # Optional weight overrides (usually derived from balanciness)
     w_balance: int | None = None
     w_stickiness: int | None = None
 
-    # Weights for the 'smart' modes (relative importance)
+    # Weights for 'smart' modes (Usage vs Pressure)
+    # We prioritize PSI (contention) over raw usage to fix performance issues first.
     w_cpu_usage: int = 1
-    w_cpu_psi: int = 1
+    w_cpu_psi: int = 2
     w_mem_usage: int = 1
-    w_mem_psi: int = 1
+    w_mem_psi: int = 2
     w_io_usage: int = 1
-    w_io_psi: int = 1
+    w_io_psi: int = 2
     
-    # Weights for 'global_smart' (importance of resource pools against each other)
+    # Global resource weights (Relative importance of resource pools)
+    # Memory is prioritized (10) as exhaustion is fatal (OOM). 
+    # CPU is secondary (5), and IO is weighted lowest (1) as it's often pool-limited.
     w_global_mem: int = 10
-    w_global_cpu: int = 10
+    w_global_cpu: int = 5
     w_global_io: int = 1
     
-    # Ops-Safety Limits
-    max_parallel_migrations: int | None = None # Overall limit for the cluster
-    max_node_inflow: int = 1 # Max VMs that can migrate TO a node in one step
+    # Operational Safety Limits
+    # max_parallel_migrations: Limits concurrent network/storage load during moves.
+    max_parallel_migrations: int | None = 2 
+    # max_node_inflow: Prevents transient RAM/CPU peaks by allowing only one entry per host.
+    max_node_inflow: int = 1
 
 
 @dataclass(frozen=True)
@@ -114,13 +114,12 @@ class Cluster:
     nodes: list[Node]
     vms: list[VM]
     constraints: Constraints
-    expect: Expect # Used for testing automated scenarios
-    evacuate_node: str | None = None # Optional: Node name to clear completely
+    expect: Expect
+    evacuate_node: str | None = None
 
 
 @dataclass(frozen=True)
 class Migration:
-    """A single VM movement."""
     vm: str
     source: str
     target: str
@@ -128,19 +127,17 @@ class Migration:
 
 @dataclass(frozen=True)
 class MigrationStep:
-    """A set of migrations that can be executed concurrently."""
     step: int
     migrations: list[Migration]
-    parallel: bool # True if step contains more than 1 migration
+    parallel: bool
 
 
 @dataclass(frozen=True)
 class MigrationPlan:
-    """The result of the planner: an ordered sequence of executable steps."""
     steps: list[MigrationStep]
-    dependency_edges: list[tuple[str, str]] # Info about why VM A waits for VM B
-    temp_moves: list[str]                   # VMs that need an intermediate hop
-    path_feasible: bool = True              # False if a deadlock/cycle is unbreakable
+    dependency_edges: list[tuple[str, str]]
+    temp_moves: list[str]
+    path_feasible: bool = True
     unbreakable_cycle: list[str] = field(default_factory=list)
 
 
@@ -161,7 +158,7 @@ class Solution:
     placements: dict[str, str] # vm_name -> node_name
     migrations: list[Migration]
     stats: SolverStats
-    blocking_vms: list[str] = field(default_factory=list) # VMs preventing node evacuation
+    blocking_vms: list[str] = field(default_factory=list)
     path_feasible: bool = True # False if the planner couldn't find a way to get there
     reachability_attempts: int = 1 # How many times we retried solver vs planner
 
