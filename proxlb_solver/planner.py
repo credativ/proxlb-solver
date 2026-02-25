@@ -124,7 +124,19 @@ def plan_migrations(
     for vm in cluster.vms:
         node_used[vm.node] += vm.memory; node_cpu[vm.node] += vm.cpu
 
-    mig_map = {m.vm: m for m in solution.migrations}
+    # For PVE native affinity groups: only one member needs an explicit API call.
+    # PVE HA will automatically co-migrate the remaining group members.
+    # We pick the lexicographically first migrating member as the trigger.
+    _all_mig = {m.vm: m for m in solution.migrations}
+    pve_deferred: set[str] = set()
+    for vm_name in sorted(_all_mig):
+        if vm_name in pve_deferred:
+            continue
+        group = _get_affinity_group(vm_name, cluster, origin="pve")
+        group_migrants = group & set(_all_mig) - {vm_name}
+        pve_deferred.update(group_migrants)
+    mig_map = {vm: m for vm, m in _all_mig.items() if vm not in pve_deferred}
+
     node_residents = defaultdict(set)
     for vm in cluster.vms: node_residents[vm.node].add(vm.name)
 
@@ -222,7 +234,7 @@ def plan_migrations(
                     deps.pop(gvm_name, None)
                 cycle_broken = True; break
         if not cycle_broken:
-            return MigrationPlan([], dependency_edges, [], False, sorted(all_cycle))
+            return MigrationPlan([], dependency_edges, [], False, sorted(all_cycle), sorted(pve_deferred))
 
     # Step Generation
     current_node_used, steps, step_num = defaultdict(int, node_used), [], 1
@@ -250,4 +262,4 @@ def plan_migrations(
             for o in list(deps.keys()): deps[o].discard(vn)
             if is_t: queue.append((dst, mig_map[vn].target, vn, False))
 
-    return MigrationPlan(steps, dependency_edges, temp_moves)
+    return MigrationPlan(steps, dependency_edges, temp_moves, pve_deferred=sorted(pve_deferred))

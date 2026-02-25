@@ -515,6 +515,9 @@ def write_markdown_report(
                 if plan.temp_moves:
                     L.append(f"Temp moves: {', '.join(plan.temp_moves)}")
                     L.append("")
+                if plan.pve_deferred:
+                    L.append(f"PVE HA deferred (not issued by ProxLB): {', '.join(plan.pve_deferred)}")
+                    L.append("")
                 if not plan.path_feasible:
                     L.append(f"\u26a0\ufe0f **Path infeasible** — unbreakable cycle: {plan.unbreakable_cycle}")
                     L.append("")
@@ -787,6 +790,9 @@ a:hover { text-decoration: underline; }
                 h.append("</table>")
                 if plan.temp_moves:
                     h.append(f'<p class="warn">Temp moves: {", ".join(plan.temp_moves)}</p>')
+                if plan.pve_deferred:
+                    h.append(f'<p class="meta">PVE HA deferred — migration triggered by PVE HA, not ProxLB: '
+                             f'{", ".join(f"<code>{v}</code>" for v in plan.pve_deferred)}</p>')
                 if not plan.path_feasible:
                     h.append(f'<p class="err"><b>Path infeasible</b> — unbreakable cycle: {plan.unbreakable_cycle}</p>')
 

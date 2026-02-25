@@ -146,6 +146,9 @@ class MigrationPlan:
     temp_moves: list[str]
     path_feasible: bool = True
     unbreakable_cycle: list[str] = field(default_factory=list)
+    pve_deferred: list[str] = field(default_factory=list)
+    """VMs whose migration is delegated to PVE HA (one per affinity group is
+    migrated explicitly; the rest are expected to follow automatically)."""
 
 
 @dataclass(frozen=True)
