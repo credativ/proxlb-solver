@@ -124,15 +124,6 @@ def plan_migrations(
     for vm in cluster.vms:
         node_used[vm.node] += vm.memory; node_cpu[vm.node] += vm.cpu
 
-    # PVE affinity groups must move together.
-    # We consolidate their migrations into "super-migrations"
-    pve_groups: dict[str, set[str]] = {}
-    for vm in cluster.vms:
-        if vm.name not in pve_groups:
-            group = _get_affinity_group(vm.name, cluster, origin="pve")
-            for member in group:
-                pve_groups[member] = group
-
     mig_map = {m.vm: m for m in solution.migrations}
     node_residents = defaultdict(set)
     for vm in cluster.vms: node_residents[vm.node].add(vm.name)
@@ -178,25 +169,9 @@ def plan_migrations(
                         # Don't add dependency, let them move in separate steps.
                         continue
                     
-                    # If res is in the same PVE affinity group as vm_name, it's not a dependency
-                    if res in pve_groups.get(vm_name, set()):
-                        continue
-                    
                     # Otherwise, we MUST wait for res to vacate.
                     # This applies to BOTH capacity and PVE anti-affinity.
                     deps[vm_name].add(res)
-
-    # Cross-link dependencies for PVE groups: if A depends on B, 
-    # and A is in a PVE group with C, then C also "depends" on B (effectively).
-    for vm_name in list(mig_map.keys()):
-        group = pve_groups.get(vm_name, set())
-        if len(group) > 1:
-            all_group_deps = set()
-            for member in group:
-                all_group_deps.update(deps.get(member, set()))
-            for member in group:
-                if member in mig_map:
-                    deps[member] = all_group_deps
 
     dependency_edges = [(a, b) for a in deps for b in deps[a]]
 
@@ -258,65 +233,14 @@ def plan_migrations(
 
     while queue:
         cur_step, inflow, processed = [], defaultdict(int), []
-        skip_vms = set()
-        
         for i, (src, dst, vn, is_temp) in enumerate(queue):
-            if vn in skip_vms: continue
-            
-            # For PVE groups, we must check if the WHOLE group can move together
-            # Internal rules (origin != 'pve') are handled individually.
-            group = pve_groups.get(vn, {vn})
-            if len(group) == 1:
-                # Standard individual move
-                if deps.get(vn): continue
-                if node_mem.get(dst, 0) - current_node_used[dst] < vm_by_name[vn].memory: continue
-                if max_inflow and inflow[dst] >= max_inflow: continue
-                if max_parallel and len(cur_step) >= max_parallel: break
-                
-                cur_step.append(Migration(vn, src, dst))
-                inflow[dst] += 1
-                processed.append(i)
-                skip_vms.add(vn)
-                continue
-
-            # Group move for PVE native affinity
-            group_migs = []
-            can_move_group = True
-            
-            # Find all members of this group that are in the queue
-            for j, (q_src, q_dst, q_vn, q_is_temp) in enumerate(queue):
-                if q_vn in group and q_vn not in skip_vms:
-                    if deps.get(q_vn):
-                        can_move_group = False; break
-                    if node_mem.get(q_dst, 0) - current_node_used[q_dst] < vm_by_name[q_vn].memory:
-                        can_move_group = False; break
-                    group_migs.append((j, Migration(q_vn, q_src, q_dst)))
-            
-            if not can_move_group or not group_migs:
-                continue
-
-            # Check inflow limits for the whole group on their respective targets
-            for _, mig in group_migs:
-                if max_inflow and inflow[mig.target] >= max_inflow:
-                    can_move_group = False; break
-            
-            if not can_move_group:
-                continue
-                
-            # Check parallel limit
-            if max_parallel and len(cur_step) + len(group_migs) > max_parallel:
-                if len(cur_step) == 0:
-                    # Allow atomic group even if it exceeds parallel limit to avoid deadlock
-                    pass 
-                else:
-                    break
-            
-            # Add all members to current step
-            for idx, mig in group_migs:
-                cur_step.append(mig)
-                inflow[mig.target] += 1
-                processed.append(idx)
-                skip_vms.add(mig.vm)
+            if deps.get(vn): continue
+            if node_mem.get(dst, 0) - current_node_used[dst] < vm_by_name[vn].memory: continue
+            if max_inflow and inflow[dst] >= max_inflow: continue
+            if max_parallel and len(cur_step) >= max_parallel: break
+            cur_step.append(Migration(vn, src, dst))
+            inflow[dst] += 1
+            processed.append(i)
 
         if not cur_step: break
         steps.append(MigrationStep(step_num, cur_step, len(cur_step) > 1)); step_num += 1

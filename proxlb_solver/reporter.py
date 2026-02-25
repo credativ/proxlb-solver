@@ -112,14 +112,6 @@ def _vm_rule_origins(vm_name: str, cluster) -> str:
     return ", ".join(sorted(entries)) if entries else "none"
 
 
-def _step_is_pve_atomic(step, cluster) -> bool:
-    """Return True if this migration step contains a PVE native affinity group."""
-    for m in step.migrations:
-        for rule in cluster.constraints.affinity:
-            if m.vm in rule["vms"] and rule.get("origin") == "pve":
-                return True
-    return False
-
 
 # ── Reporting ──
 
@@ -516,8 +508,7 @@ def write_markdown_report(
                 L.append("")
                 for step in plan.steps:
                     par = " (parallel)" if step.parallel else ""
-                    atomic = " (atomic group)" if _step_is_pve_atomic(step, cluster) else ""
-                    L.append(f"**Step {step.step}**{par}{atomic}:")
+                    L.append(f"**Step {step.step}**{par}:")
                     for m in step.migrations:
                         L.append(f"- {m.vm}: {m.source} → {m.target}")
                     L.append("")
@@ -782,17 +773,15 @@ a:hover { text-decoration: underline; }
                 h.append("<h4>Execution Plan</h4>")
                 h.append(f'<p class="meta">{total_cmds} Proxmox migration command(s) in {len(plan.steps)} step(s). '
                          f'Each VM row is one API call to Proxmox.</p>')
-                h.append("<table><tr><th>Step</th><th>VM</th><th>From</th><th>To</th><th>Parallel</th><th>Type</th></tr>")
+                h.append("<table><tr><th>Step</th><th>VM</th><th>From</th><th>To</th><th>Parallel</th></tr>")
                 for step in plan.steps:
-                    step_type = "pve group" if _step_is_pve_atomic(step, cluster) else "individual"
                     par = "Yes" if step.parallel else "No"
                     n = len(step.migrations)
                     for i, m in enumerate(step.migrations):
                         if i == 0:
                             h.append(f'<tr><td rowspan="{n}">{step.step}</td><td>{m.vm}</td>'
                                      f'<td>{m.source}</td><td>{m.target}</td>'
-                                     f'<td rowspan="{n}">{par}</td>'
-                                     f'<td rowspan="{n}">{step_type}</td></tr>')
+                                     f'<td rowspan="{n}">{par}</td></tr>')
                         else:
                             h.append(f'<tr><td>{m.vm}</td><td>{m.source}</td><td>{m.target}</td></tr>')
                 h.append("</table>")
