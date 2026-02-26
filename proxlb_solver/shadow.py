@@ -137,6 +137,7 @@ def _shadow_inner(
         # Log ProxLB's planned migrations first — independent of the solver,
         # so they are always captured even if cluster building or solving fails.
         _write_proxlb_plan(proxlb_data, f)
+        _write_cluster_state(proxlb_data, solver_cfg, f)
 
         from .adapter import from_proxlb_data
         from .solver import solve
@@ -234,6 +235,43 @@ def _write_proxlb_plan(proxlb_data: dict, f: IO) -> None:
                 "target": gd["node_target"],
                 "type": gd.get("type", "vm"),
             })
+
+
+def _write_cluster_state(proxlb_data: dict, solver_cfg: dict, f: IO) -> None:
+    """Emit a ``cluster_state`` snapshot used for before/after load reporting.
+
+    Captures per-node memory and CPU totals plus the current VM placement so
+    the reporter can compute the projected load after applying the solver plan.
+    """
+    meta         = proxlb_data.get("meta", {})
+    balancing    = meta.get("balancing", {})
+    method       = solver_cfg.get("method") or balancing.get("method", "memory")
+
+    nodes: dict = {}
+    for name, nd in proxlb_data.get("nodes", {}).items():
+        mem_used  = nd.get("memory_used", 0)
+        mem_free  = nd.get("memory_free", 0)
+        raw_total = (mem_used + mem_free) if (mem_used + mem_free) > 0 else nd.get("memory_total", 0)
+        nodes[name] = {
+            "cpu_total":    nd.get("cpu_total", 0),
+            "memory_total": raw_total,
+            "memory_used":  mem_used,
+        }
+
+    guests: dict = {}
+    for name, gd in proxlb_data.get("guests", {}).items():
+        guests[name] = {
+            "node":   gd.get("node_current"),
+            "memory": gd.get("memory_total", 0),
+            "cpu":    gd.get("cpu_total", 1),
+        }
+
+    _write(f, {
+        "event":  "cluster_state",
+        "method": method,
+        "nodes":  nodes,
+        "guests": guests,
+    })
 
 
 def _write_constraints(cluster: Any, f: IO) -> None:

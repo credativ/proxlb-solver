@@ -199,6 +199,18 @@ tbody tr:hover td { background: rgba(255,255,255,.03); }
     font-size: 10px; font-weight: 700; text-transform: uppercase;
     letter-spacing: .5px; color: var(--muted);
 }
+
+/* ── Load bars ─────────────────────────────────────────────────────────── */
+.load-cell { display: flex; align-items: center; gap: 8px; min-width: 180px; }
+.bar-track {
+    flex: 1; min-width: 80px; height: 6px;
+    background: var(--surface2); border: 1px solid var(--border);
+    border-radius: 3px; overflow: hidden;
+}
+.bar-fill          { height: 100%; border-radius: 3px; transition: width .2s; }
+.bar-fill-neutral  { background: var(--muted); }
+.bar-fill-better   { background: var(--green); }
+.bar-fill-worse    { background: var(--orange); }
 """
 
 
@@ -296,6 +308,8 @@ def _parse_run(path: Path) -> dict[str, Any]:
         "active_step_retries": [],
         "active_resolves": [],
         "active_complete": None,
+        # Cluster state snapshot (for before/after load display)
+        "cluster_state": None,
     }
     for ev in events:
         t = ev.get("event")
@@ -328,6 +342,8 @@ def _parse_run(path: Path) -> dict[str, Any]:
             run["active_resolves"].append(ev)
         elif t == "active_complete":
             run["active_complete"] = ev
+        elif t == "cluster_state":
+            run["cluster_state"] = ev
         elif t is None:
             # first event may lack a 'ts' if emitted before solver_run
             if run["ts"] is None:
@@ -638,6 +654,141 @@ def _render_run(run: dict[str, Any], output_dir: Path) -> None:
     else:
         plan_section = ""
 
+    # ── Node load: before / after ─────────────────────────────────────────────
+    cs = run.get("cluster_state")
+    if cs:
+        cs_method     = cs.get("method", "memory")
+        nodes_data    = cs.get("nodes", {})
+        guests_data   = cs.get("guests", {})
+        plan_steps_ba = run["plan_steps"]
+
+        # CPU allocation per node before migrations (sum of VM cores)
+        cpu_alloc_before: dict = {n: 0 for n in nodes_data}
+        for gd in guests_data.values():
+            nd_name = gd.get("node")
+            if nd_name in cpu_alloc_before:
+                cpu_alloc_before[nd_name] += int(gd.get("cpu", 0))
+
+        # Apply solver plan to estimate "after" state
+        mem_after: dict = {n: nd.get("memory_used", 0) for n, nd in nodes_data.items()}
+        cpu_after: dict = dict(cpu_alloc_before)
+        for ps in plan_steps_ba:
+            vm_name = ps.get("vm")
+            src     = ps.get("source")
+            tgt     = ps.get("target")
+            gd      = guests_data.get(vm_name, {})
+            vm_mem  = int(gd.get("memory", 0))
+            vm_cpu  = int(gd.get("cpu", 0))
+            if src in mem_after:
+                mem_after[src] = max(0, mem_after[src] - vm_mem)
+                cpu_after[src] = max(0, cpu_after[src] - vm_cpu)
+            if tgt:
+                mem_after[tgt] = mem_after.get(tgt, 0) + vm_mem
+                cpu_after[tgt] = cpu_after.get(tgt, 0) + vm_cpu
+
+        GiB = 1024 ** 3
+
+        def _bar(pct: float, cls: str) -> str:
+            w = max(0.0, min(100.0, pct))
+            return (
+                f'<div class="bar-track">'
+                f'<div class="bar-fill {cls}" style="width:{w:.1f}%"></div>'
+                f'</div>'
+            )
+
+        def _delta_html(d: float) -> str:
+            if d < -0.5:
+                return f'<span style="color:var(--green)">&#9660;&thinsp;{abs(d):.1f}%</span>'
+            if d > 0.5:
+                return f'<span style="color:var(--orange)">&#9650;&thinsp;{d:.1f}%</span>'
+            return '<span style="color:var(--muted)">—</span>'
+
+        show_after = bool(plan_steps_ba)
+        load_rows: list[str] = []
+        for node_name in sorted(nodes_data):
+            nd      = nodes_data[node_name]
+            mem_tot = nd.get("memory_total", 1) or 1
+            cpu_tot = nd.get("cpu_total", 1) or 1
+
+            mem_b = nd.get("memory_used", 0)
+            mem_a = mem_after.get(node_name, mem_b)
+            cpu_b = cpu_alloc_before.get(node_name, 0)
+            cpu_a = cpu_after.get(node_name, cpu_b)
+
+            mp_b = 100 * mem_b / mem_tot
+            mp_a = 100 * mem_a / mem_tot
+            cp_b = 100 * cpu_b / cpu_tot
+            cp_a = 100 * cpu_a / cpu_tot
+            md   = mp_a - mp_b
+            cd   = cp_a - cp_b
+
+            mc_a = "bar-fill-better" if md < -0.5 else ("bar-fill-worse" if md > 0.5 else "bar-fill-neutral")
+            cc_a = "bar-fill-better" if cd < -0.5 else ("bar-fill-worse" if cd > 0.5 else "bar-fill-neutral")
+
+            mem_b_label = f'{mem_b/GiB:.1f}&thinsp;GiB&ensp;{mp_b:.0f}%'
+            mem_a_label = f'{mem_a/GiB:.1f}&thinsp;GiB&ensp;{mp_a:.0f}%'
+            cpu_b_label = f'{cpu_b}&thinsp;/&thinsp;{cpu_tot}&ensp;{cp_b:.0f}%'
+            cpu_a_label = f'{cpu_a}&thinsp;/&thinsp;{cpu_tot}&ensp;{cp_a:.0f}%'
+
+            if show_after:
+                load_rows.append(
+                    "<tr>"
+                    f'<td class="mono">{h(node_name)}</td>'
+                    f'<td><div class="load-cell">{_bar(mp_b, "bar-fill-neutral")}'
+                    f'<span class="mono">{mem_b_label}</span></div></td>'
+                    f'<td><div class="load-cell">{_bar(mp_a, mc_a)}'
+                    f'<span class="mono">{mem_a_label}</span></div></td>'
+                    f'<td>{_delta_html(md)}</td>'
+                    f'<td><div class="load-cell">{_bar(cp_b, "bar-fill-neutral")}'
+                    f'<span class="mono">{cpu_b_label}</span></div></td>'
+                    f'<td><div class="load-cell">{_bar(cp_a, cc_a)}'
+                    f'<span class="mono">{cpu_a_label}</span></div></td>'
+                    f'<td>{_delta_html(cd)}</td>'
+                    "</tr>"
+                )
+            else:
+                load_rows.append(
+                    "<tr>"
+                    f'<td class="mono">{h(node_name)}</td>'
+                    f'<td><div class="load-cell">{_bar(mp_b, "bar-fill-neutral")}'
+                    f'<span class="mono">{mem_b_label}</span></div></td>'
+                    f'<td><div class="load-cell">{_bar(cp_b, "bar-fill-neutral")}'
+                    f'<span class="mono">{cpu_b_label}</span></div></td>'
+                    "</tr>"
+                )
+
+        if show_after:
+            load_thead = (
+                "<thead><tr>"
+                "<th>Node</th>"
+                "<th>RAM before</th><th>RAM after</th><th>Δ</th>"
+                "<th>CPU alloc before</th><th>CPU alloc after</th><th>Δ</th>"
+                "</tr></thead>"
+            )
+            after_note = (
+                ' <span class="badge b-muted">projected</span>'
+                if not is_active else ""
+            )
+        else:
+            load_thead = (
+                "<thead><tr>"
+                "<th>Node</th><th>RAM</th><th>CPU alloc</th>"
+                "</tr></thead>"
+            )
+            after_note = ""
+
+        load_section = (
+            '<div class="section">'
+            f'<div class="section-title">📊 Node load{after_note}'
+            f'<span class="count">method: {h(cs_method)}</span></div>'
+            '<div class="tbl-wrap"><table>'
+            f"{load_thead}"
+            f"<tbody>{''.join(load_rows)}</tbody>"
+            "</table></div></div>"
+        )
+    else:
+        load_section = ""
+
     # ── Comparison ────────────────────────────────────────────────────────────
     _CMP = {
         "agree":       ("✓", "cmp-agree",  "Both agree"),
@@ -879,6 +1030,7 @@ def _render_run(run: dict[str, Any], output_dir: Path) -> None:
         f"{c_section}"
         f"{proxlb_plan_section}"
         f"{plan_section}"
+        f"{load_section}"
         f"{active_exec_section}"
         f"{cmp_section}"
         f"{err_section}"
