@@ -21,3 +21,5 @@ results.html
 
 # pytest
 .pytest_cache/
+proxlb/
+memory/
