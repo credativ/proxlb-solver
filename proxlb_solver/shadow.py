@@ -394,9 +394,11 @@ def _execute_single_step(
     """
     from proxlb.models.balancing import Balancing as _Balancing  # late import
 
-    # Reset all targets; only this step's VMs receive a node_target.
+    # Freeze every guest in place: set node_target = node_current so that
+    # Balancing() skips them (it only migrates when node_current != node_target).
+    # We then override only the VMs belonging to this step.
     for gd in guests.values():
-        gd["node_target"] = None
+        gd["node_target"] = gd.get("node_current")
 
     step_migrations: dict = {}
     for m in step.migrations:
