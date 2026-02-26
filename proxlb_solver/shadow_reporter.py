@@ -721,7 +721,7 @@ def _render_run(run: dict[str, Any], output_dir: Path) -> None:
 
         active_parts: list[str] = []
         for retry_num in sorted(by_retry_step):
-            # ── Retry heading (only for re-solve passes) ──────────────────────
+            # ── Re-solve heading (only for re-solve passes) ───────────────────
             if retry_num > 0:
                 retry       = retry_map.get(retry_num, {})
                 pinned      = retry.get("pinned_vms", [])
@@ -741,64 +741,75 @@ def _render_run(run: dict[str, Any], output_dir: Path) -> None:
                     f'{resolve_badge_html}</div>'
                 )
 
-            # ── Per-step tables within this retry pass ────────────────────────
-            for step_num in sorted(by_retry_step[retry_num]):
-                step_evs    = by_retry_step[retry_num][step_num]
-                step_ok     = sum(1 for e in step_evs if e.get("success"))
-                step_failed = len(step_evs) - step_ok
-                step_badge  = (
-                    f' <span class="badge b-green">{step_ok} ok</span>'
-                    + (f' <span class="badge b-red">{step_failed} failed</span>' if step_failed else "")
+            # ── Flat sequential table for this retry pass ─────────────────────
+            # Flatten all VMs across solver steps in order; execution is always
+            # sequential (Balancing handles one VM at a time internally).
+            steps_in_pass = sorted(by_retry_step[retry_num].keys())
+            pass_evs: list[dict] = []
+            for step_num in steps_in_pass:
+                pass_evs.extend(by_retry_step[retry_num][step_num])
+
+            # Only show "Solver step" column when there are multiple distinct
+            # steps — i.e. dependency ordering actually mattered this pass.
+            show_step_col = len(steps_in_pass) > 1
+
+            rows: list[str] = []
+            for seq, ev in enumerate(pass_evs, start=1):
+                step_num = ev.get("step", 0)
+                vm       = ev.get("vm", "")
+                ps       = plan_step_map.get((step_num, vm), {})
+                source   = ps.get("source", "")
+                target   = ps.get("target", ev.get("expected", ""))
+                actual   = ev.get("actual") or "—"
+                success  = ev.get("success", False)
+                dur      = _duration(ev)
+
+                move_cell = (
+                    f'<span class="mono">{h(source)}</span>'
+                    f' <span style="color:var(--muted)">→</span> '
+                    f'<span class="mono">{h(target)}</span>'
+                    if source else
+                    f'<span class="mono">{h(target)}</span>'
                 )
-                active_parts.append(
-                    f'<div class="sub-heading">Step {step_num}{step_badge}</div>'
+                if success:
+                    result_cell = '<span style="color:var(--green);font-size:16px">✓</span>'
+                    actual_cell = f'<span class="mono" style="color:var(--green)">{h(actual)}</span>'
+                else:
+                    err = ev.get("error", "")
+                    result_cell = '<span style="color:var(--red);font-size:16px">✗</span>'
+                    actual_cell = (
+                        f'<span class="mono" style="color:var(--red)">{h(actual)}</span>'
+                        + (f'<br><span style="color:var(--red);font-size:11px">{h(err)}</span>' if err else "")
+                    )
+                step_td = (
+                    f'<td class="mono" style="color:var(--muted)">{step_num}</td>'
+                    if show_step_col else ""
+                )
+                rows.append(
+                    "<tr>"
+                    f'<td class="mono" style="color:var(--muted);text-align:right">{seq}</td>'
+                    f'<td class="mono">{h(vm)}</td>'
+                    f"<td>{move_cell}</td>"
+                    f"{step_td}"
+                    f"<td>{actual_cell}</td>"
+                    f'<td style="text-align:center">{result_cell}</td>'
+                    f'<td class="mono" style="color:var(--muted);text-align:right">{h(dur)}</td>'
+                    "</tr>"
                 )
 
-                rows: list[str] = []
-                for ev in step_evs:
-                    vm      = ev.get("vm", "")
-                    ps      = plan_step_map.get((step_num, vm), {})
-                    source  = ps.get("source", "")
-                    target  = ps.get("target", ev.get("expected", ""))
-                    actual  = ev.get("actual") or "—"
-                    success = ev.get("success", False)
-                    dur     = _duration(ev)
-
-                    move_cell = (
-                        f'<span class="mono">{h(source)}</span>'
-                        f' <span style="color:var(--muted)">→</span> '
-                        f'<span class="mono">{h(target)}</span>'
-                        if source else
-                        f'<span class="mono">{h(target)}</span>'
-                    )
-                    if success:
-                        result_cell = '<span style="color:var(--green);font-size:16px">✓</span>'
-                        actual_cell = f'<span class="mono" style="color:var(--green)">{h(actual)}</span>'
-                    else:
-                        err = ev.get("error", "")
-                        result_cell = '<span style="color:var(--red);font-size:16px">✗</span>'
-                        actual_cell = (
-                            f'<span class="mono" style="color:var(--red)">{h(actual)}</span>'
-                            + (f'<br><span style="color:var(--red);font-size:11px">{h(err)}</span>' if err else "")
-                        )
-                    rows.append(
-                        "<tr>"
-                        f'<td class="mono">{h(vm)}</td>'
-                        f"<td>{move_cell}</td>"
-                        f"<td>{actual_cell}</td>"
-                        f'<td style="text-align:center">{result_cell}</td>'
-                        f'<td class="mono" style="color:var(--muted);text-align:right">{h(dur)}</td>'
-                        "</tr>"
-                    )
-                active_parts.append(
-                    '<div class="tbl-wrap"><table>'
-                    "<thead><tr>"
-                    "<th>VM</th><th>Migration</th><th>Landed on</th>"
-                    "<th style='text-align:center'>Result</th><th style='text-align:right'>Duration</th>"
-                    "</tr></thead>"
-                    f"<tbody>{''.join(rows)}</tbody>"
-                    "</table></div>"
-                )
+            step_th = "<th>Solver step</th>" if show_step_col else ""
+            active_parts.append(
+                '<div class="tbl-wrap"><table>'
+                "<thead><tr>"
+                "<th>#</th><th>VM</th><th>Migration</th>"
+                f"{step_th}"
+                "<th>Landed on</th>"
+                "<th style='text-align:center'>Result</th>"
+                "<th style='text-align:right'>Duration</th>"
+                "</tr></thead>"
+                f"<tbody>{''.join(rows)}</tbody>"
+                "</table></div>"
+            )
 
         # ── Summary footer ────────────────────────────────────────────────────
         if active_complete:
