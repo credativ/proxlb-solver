@@ -534,7 +534,7 @@ class TestActiveMode:
         assert "vm-3" in active_detail_html
 
     def test_detail_shows_retry_section(self, active_detail_html):
-        assert "Retry" in active_detail_html
+        assert "Re-solve" in active_detail_html
         # Pinned VM list
         assert "vm-3" in active_detail_html
 
