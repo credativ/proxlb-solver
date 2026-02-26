@@ -17,7 +17,9 @@ from .reporter import (
 )
 from .solver import solve, solve_reachable
 
-SCENARIOS_DIR = Path(__file__).parent.parent / "scenarios"
+# Development fallback: scenarios/ next to the repo root.
+# This path does not exist in an installed package; users must pass --scenarios.
+_DEV_SCENARIOS_DIR = Path(__file__).parent.parent / "scenarios"
 
 
 def collect_scenarios(base: Path) -> list[Path]:
@@ -29,8 +31,12 @@ def main() -> None:
         description="ProxLB CP-SAT Solver — run scenarios and generate reports"
     )
     parser.add_argument(
-        "--scenarios", type=Path, default=SCENARIOS_DIR,
-        help="Directory containing YAML scenarios",
+        "--scenarios", type=Path, default=None,
+        help=(
+            "Directory containing YAML scenario files. "
+            "Defaults to scenarios/ relative to the source tree when running "
+            "from a checkout; required when running from an installed package."
+        ),
     )
     parser.add_argument(
         "--markdown", type=Path, default=None,
@@ -49,6 +55,15 @@ def main() -> None:
         help="Suppress terminal output",
     )
     args = parser.parse_args()
+
+    if args.scenarios is None:
+        if _DEV_SCENARIOS_DIR.is_dir():
+            args.scenarios = _DEV_SCENARIOS_DIR
+        else:
+            parser.error(
+                "--scenarios is required when running from an installed package.\n"
+                "Example: proxlb-solver --scenarios /path/to/scenarios"
+            )
 
     scenario_files = collect_scenarios(args.scenarios)
     if not scenario_files:

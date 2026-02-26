@@ -5,8 +5,31 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "proxlb-solver"
 version = "0.1.0"
-description = "CP-SAT based VM scheduler for ProxLB"
+description = "CP-SAT based VM placement solver for ProxLB"
+readme = "README.md"
+license = { text = "GPL-3.0-or-later" }
+authors = [
+    { name = "Alexander Wirt", email = "alexander.wirt@credativ.de" },
+]
 requires-python = ">=3.9"
+keywords = [
+    "proxmox", "vm", "scheduling", "placement", "balancing",
+    "cp-sat", "ortools", "proxlb",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: System Administrators",
+    "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: System :: Systems Administration",
+    "Topic :: System :: Clustering",
+]
 dependencies = [
     "ortools>=9.9",
     "PyYAML>=6.0",
@@ -19,8 +42,23 @@ dev = [
     "flake8>=7.0",
 ]
 
+[project.urls]
+Homepage = "https://github.com/credativ/proxlb-algorithmus"
+Repository = "https://github.com/credativ/proxlb-algorithmus"
+"Bug Tracker" = "https://github.com/credativ/proxlb-algorithmus/issues"
+
+[project.scripts]
+proxlb-solver        = "proxlb_solver.cli:main"
+proxlb-solver-report = "proxlb_solver.shadow_reporter:main"
+
 [tool.setuptools.packages.find]
+# Include the library package and any future sub-packages,
+# but never ship the test suite to end users.
 include = ["proxlb_solver*"]
+exclude = ["proxlb_solver.tests*"]
 
 [tool.pytest.ini_options]
+# Both test trees are collected:
+#   tests/            — scenario-driven integration tests
+#   tests/unit/       — unit tests for adapter, shadow mode, constraints
 testpaths = ["tests"]

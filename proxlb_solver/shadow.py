@@ -1,0 +1,294 @@
+"""
+Shadow mode integration for the CP-SAT solver.
+
+Runs the solver after ProxLB has computed its migration plan, writes a structured
+JSONL log file (one per run) for later analysis, and emits a single summary line
+to the main ProxLB logger. Never touches the Proxmox API.
+
+JSONL event types written to the run file:
+  proxlb_action  — one entry per migration ProxLB planned (logged before solving)
+                   fields: vm, source, target, type (vm|ct)
+  constraint     — one entry per constraint recognized by the solver
+  solver_run     — overall status, migration count, load gap, wall time
+  plan_step      — one entry per migration in the solver's ordered plan
+  pve_deferred   — VMs whose follow-up moves are delegated to PVE HA
+  unbreakable_cycle — cycle that could not be resolved by the planner
+  compare        — per-VM comparison between solver and ProxLB decisions
+                   result: agree | differ | solver_only | proxlb_only
+  infeasible     — solver found no valid placement; lists blocking VMs
+  error          — unexpected exception during shadow run
+  proxlb_executed — appended after Balancing() completes; dry_run=True when
+                    ProxLB ran with --dry-run (no migrations were issued)
+"""
+
+from __future__ import annotations
+import datetime
+import json
+import os
+import traceback
+from typing import Any, IO
+
+
+# ---------------------------------------------------------------------------
+# Internal helpers
+# ---------------------------------------------------------------------------
+
+def _ts() -> str:
+    return datetime.datetime.now(datetime.timezone.utc).isoformat()
+
+
+def _write(f: IO, event: dict) -> None:
+    event.setdefault("ts", _ts())
+    f.write(json.dumps(event, default=str) + "\n")
+    f.flush()
+
+
+def _make_run_file(log_dir: str) -> str:
+    ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    os.makedirs(log_dir, exist_ok=True)
+    return os.path.join(log_dir, f"solver_run_{ts}.jsonl")
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+def run_shadow(proxlb_data: dict, solver_cfg: dict):
+    """Run solver in shadow mode.
+
+    Writes a structured JSONL file to solver_cfg['log_dir'] and logs one
+    summary line to the 'proxlb' logger. Never modifies the cluster.
+
+    Returns the path to the created run file (str) so the caller can later
+    append a ``proxlb_executed`` event via :func:`finalize_run`. Returns
+    ``None`` if the log directory could not be created.
+    """
+    import logging
+    log = logging.getLogger("proxlb")
+
+    log_dir = solver_cfg.get("log_dir", "/var/log/proxlb/solver")
+
+    try:
+        run_file = _make_run_file(log_dir)
+    except OSError as exc:
+        log.warning(f"[solver] cannot create log_dir={log_dir!r}: {exc}")
+        return None
+
+    try:
+        with open(run_file, "w") as f:
+            _shadow_inner(proxlb_data, solver_cfg, f, log, run_file)
+    except Exception as exc:
+        # Safety net — _shadow_inner handles its own errors; this catches
+        # unexpected failures outside that scope (e.g. file write errors).
+        log.warning(f"[solver] shadow run failed: {exc}")
+
+    return run_file
+
+
+def finalize_run(run_file: str, dry_run: bool = False) -> None:
+    """Append a ``proxlb_executed`` event to *run_file* after Balancing completes.
+
+    Call this from ProxLB's main loop after ``Balancing(proxmox_api, proxlb_data)``
+    to record whether migrations were actually issued or skipped (dry-run).
+
+    Args:
+        run_file: Path returned by :func:`run_shadow`.
+        dry_run:  True when ProxLB was started with ``--dry-run``; no migrations
+                  were issued to the Proxmox API.
+    """
+    try:
+        with open(run_file, "a") as f:
+            _write(f, {"event": "proxlb_executed", "dry_run": dry_run})
+    except OSError:
+        pass
+
+
+# ---------------------------------------------------------------------------
+# Internal implementation
+# ---------------------------------------------------------------------------
+
+def _shadow_inner(
+    proxlb_data: dict,
+    solver_cfg: dict,
+    f: IO,
+    log: Any,
+    run_file: str,
+) -> None:
+    try:
+        # Log ProxLB's planned migrations first — independent of the solver,
+        # so they are always captured even if cluster building or solving fails.
+        _write_proxlb_plan(proxlb_data, f)
+
+        from .adapter import from_proxlb_data
+        from .solver import solve
+        from .planner import plan_migrations
+
+        use_reservations = bool(solver_cfg.get("use_reservations", True))
+        cluster = from_proxlb_data(proxlb_data, use_reservations=use_reservations)
+
+        # Apply optional config overrides
+        overrides: dict[str, Any] = {}
+        if "balanciness" in solver_cfg:
+            overrides["balanciness"] = int(solver_cfg["balanciness"])
+        if "method" in solver_cfg:
+            overrides["method"] = str(solver_cfg["method"])
+        if overrides:
+            from dataclasses import replace
+            cluster = replace(cluster, balancing=replace(cluster.balancing, **overrides))
+
+        # Log all identified constraints before solving so the full rule picture
+        # is always visible, even if the solver fails or times out.
+        _write_constraints(cluster, f)
+
+        time_limit_s = float(solver_cfg.get("timeout_seconds", 30.0))
+        solution = solve(cluster, time_limit_s=time_limit_s)
+
+        _write(f, {
+            "event": "solver_run",
+            "status": solution.stats.status,
+            "migrations": solution.stats.migration_count,
+            "gap": round(solution.stats.load_gap, 6),
+            "wall_time_ms": round(solution.stats.wall_time_ms, 1),
+            "feasible": solution.feasible,
+        })
+
+        # Single summary line to the main ProxLB log
+        log.info(
+            f"[solver] run={run_file} status={solution.stats.status} "
+            f"migrations={solution.stats.migration_count} "
+            f"gap={solution.stats.load_gap:.3f} "
+            f"time={solution.stats.wall_time_ms:.0f}ms"
+        )
+
+        if not solution.feasible:
+            _write(f, {"event": "infeasible", "blocking_vms": solution.blocking_vms})
+            return
+
+        plan = plan_migrations(cluster, solution)
+
+        for step in plan.steps:
+            for m in step.migrations:
+                _write(f, {
+                    "event": "plan_step",
+                    "step": step.step,
+                    "vm": m.vm,
+                    "source": m.source,
+                    "target": m.target,
+                    "parallel": step.parallel,
+                })
+
+        if plan.pve_deferred:
+            _write(f, {"event": "pve_deferred", "vms": plan.pve_deferred})
+
+        if not plan.path_feasible:
+            _write(f, {"event": "unbreakable_cycle", "vms": plan.unbreakable_cycle})
+
+        _write_comparison(proxlb_data, solution, f)
+
+    except Exception as exc:
+        _write(f, {
+            "event": "error",
+            "message": str(exc),
+            "traceback": traceback.format_exc(),
+        })
+        log.warning(f"[solver] shadow run failed: {exc}")
+
+
+def _write_proxlb_plan(proxlb_data: dict, f: IO) -> None:
+    """Emit one ``proxlb_action`` event per migration ProxLB has planned.
+
+    These are derived directly from ``proxlb_data`` before the solver runs,
+    so they capture ProxLB's independent decision for later comparison.
+    Guests whose ``node_target`` equals ``node_current`` (no move needed) are
+    silently skipped.
+    """
+    for name in sorted(proxlb_data.get("guests", {})):
+        gd = proxlb_data["guests"][name]
+        if gd.get("node_target") and gd["node_target"] != gd.get("node_current"):
+            _write(f, {
+                "event": "proxlb_action",
+                "vm": name,
+                "source": gd.get("node_current"),
+                "target": gd["node_target"],
+                "type": gd.get("type", "vm"),
+            })
+
+
+def _write_constraints(cluster: Any, f: IO) -> None:
+    """Emit one JSONL event per identified constraint so the rule picture is
+    always visible in the log, regardless of whether solving succeeds.
+
+    Event fields by type:
+      affinity / anti_affinity:
+        name    — rule/tag/pool identifier
+        origin  — "pve" (native HA rule) | "plb" (tag or pool)
+        vms     — list of VM names in the group
+        hard    — True = hard constraint (solver must satisfy)
+
+      pin:
+        vm      — VM name
+        nodes   — allowed node names (union of all pin sources)
+        origins — list of {origin, source} dicts showing where each pin came from
+
+      ignore:
+        vm      — VM name that is excluded from rebalancing
+    """
+    for rule in cluster.constraints.affinity:
+        _write(f, {
+            "event": "constraint",
+            "type": "affinity",
+            "name": rule["name"],
+            "origin": rule["origin"],
+            "vms": rule["vms"],
+            "hard": rule.get("hard", True),
+        })
+
+    for rule in cluster.constraints.anti_affinity:
+        _write(f, {
+            "event": "constraint",
+            "type": "anti_affinity",
+            "name": rule["name"],
+            "origin": rule["origin"],
+            "vms": rule["vms"],
+            "hard": rule.get("hard", True),
+        })
+
+    for rule in cluster.constraints.pin:
+        _write(f, {
+            "event": "constraint",
+            "type": "pin",
+            "vm": rule["vm"],
+            "nodes": rule["nodes"],
+            "origins": rule.get("origins", []),
+        })
+
+    for vm_name in cluster.constraints.ignore:
+        _write(f, {
+            "event": "constraint",
+            "type": "ignore",
+            "vm": vm_name,
+        })
+
+
+def _write_comparison(proxlb_data: dict, solution: Any, f: IO) -> None:
+    """Compare solver plan with ProxLB decisions, write one JSONL line per VM."""
+    solver_plan = {m.vm: m.target for m in solution.migrations}
+    proxlb_plan = {
+        name: gd["node_target"]
+        for name, gd in proxlb_data.get("guests", {}).items()
+        if gd.get("node_target") and gd["node_target"] != gd.get("node_current")
+    }
+    all_vms = set(solver_plan) | set(proxlb_plan)
+    for vm in sorted(all_vms):
+        sv, pv = solver_plan.get(vm), proxlb_plan.get(vm)
+        if sv == pv:
+            _write(f, {"event": "compare", "vm": vm, "result": "agree", "target": sv})
+        elif sv and pv:
+            _write(f, {"event": "compare", "vm": vm, "result": "differ",
+                        "solver_target": sv, "proxlb_target": pv})
+        elif sv:
+            _write(f, {"event": "compare", "vm": vm, "result": "solver_only",
+                        "solver_target": sv})
+        else:
+            _write(f, {"event": "compare", "vm": vm, "result": "proxlb_only",
+                        "proxlb_target": pv})
