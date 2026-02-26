@@ -52,6 +52,7 @@ def _get_memory_reserve_bytes(node_name: str, reserve_cfg: dict) -> int:
 def from_proxlb_data(
     proxlb_data: Dict[str, Any],
     use_reservations: bool = True,
+    pin_vms: set | None = None,
 ) -> Cluster:
     """Convert a proxlb_data dict into a Cluster ready for the solver.
 
@@ -61,6 +62,10 @@ def from_proxlb_data(
                           from the balancing config are applied as explicit
                           Node.memory_reserve values.  Set to False to let
                           the solver treat the full hardware RAM as available.
+        pin_vms:          Optional set of VM names to force-pin to their
+                          current node.  Used by the active-mode feedback loop
+                          after a failed migration so that the VM is not
+                          re-attempted in the next solve.
     """
     meta = proxlb_data.get("meta", {})
     balancing_cfg = meta.get("balancing", {})
@@ -185,6 +190,15 @@ def from_proxlb_data(
                 "vm": name,
                 "nodes": gd["node_relationships"],  # validated by ProxLB
                 "origins": pin_origins,
+            })
+
+        # Active-mode feedback: pin VMs whose migrations failed to their
+        # current node so the re-solve cannot attempt to move them again.
+        if pin_vms and name in pin_vms:
+            pin_rules.append({
+                "vm": name,
+                "nodes": [gd.get("node_current", "")],
+                "origins": [{"origin": "solver", "source": "migration_failed"}],
             })
 
         # Ignore flags

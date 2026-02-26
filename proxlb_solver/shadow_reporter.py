@@ -128,6 +128,7 @@ code {
 .b-yellow { background: #713f1244; color: var(--yellow); border: 1px solid #713f12; }
 .b-red    { background: #7f1d1d44; color: var(--red);    border: 1px solid #7f1d1d; }
 .b-orange { background: #7c2d1244; color: var(--orange); border: 1px solid #7c2d12; }
+.b-blue   { background: #1e3a5f44; color: var(--blue);   border: 1px solid #1e3a5f; }
 .b-muted  { background: var(--surface2); color: var(--muted); border: 1px solid var(--border); }
 
 /* ── Sections ──────────────────────────────────────────────────────────── */
@@ -290,6 +291,11 @@ def _parse_run(path: Path) -> dict[str, Any]:
         "infeasible": None,
         "error": None,
         "ts": None,
+        # Active-mode execution events
+        "active_step_results": [],
+        "active_step_retries": [],
+        "active_resolves": [],
+        "active_complete": None,
     }
     for ev in events:
         t = ev.get("event")
@@ -314,6 +320,14 @@ def _parse_run(path: Path) -> dict[str, Any]:
             run["infeasible"] = ev
         elif t == "error":
             run["error"] = ev
+        elif t == "active_step_result":
+            run["active_step_results"].append(ev)
+        elif t == "active_step_retry":
+            run["active_step_retries"].append(ev)
+        elif t == "active_resolve":
+            run["active_resolves"].append(ev)
+        elif t == "active_complete":
+            run["active_complete"] = ev
         elif t is None:
             # first event may lack a 'ts' if emitted before solver_run
             if run["ts"] is None:
@@ -446,12 +460,21 @@ def _render_run(run: dict[str, Any], output_dir: Path) -> None:
             if sr.get("feasible") else
             '<span style="color:var(--red);font-size:16px;font-weight:700">✗ Infeasible</span>'
         )
+        mode = (sr.get("mode") or "shadow").lower()
+        mode_cls = "b-blue" if mode == "active" else "b-muted"
+        mode_card = (
+            f'<div class="card"><div class="label">Mode</div>'
+            f'<div style="margin-top:8px">'
+            f'<span class="badge {mode_cls}">{h(mode.upper())}</span>'
+            f'</div></div>'
+        )
         header_cards = (
             '<div class="cards">'
             f'<div class="card"><div class="label">Status</div>'
             f'<div style="margin-top:8px">{_status_badge(sr.get("status","?"))}</div></div>'
             f'<div class="card"><div class="label">Feasibility</div>'
             f'<div style="margin-top:6px">{feas_html}</div></div>'
+            + mode_card
             + _card("ProxLB mig.",  str(len(run["proxlb_actions"])))
             + _card("Solver mig.",  str(sr.get("migrations", 0)))
             + _card("Load gap",     f'{sr.get("gap", 0):.4f}')
@@ -654,6 +677,111 @@ def _render_run(run: dict[str, Any], output_dir: Path) -> None:
     else:
         cmp_section = ""
 
+    # ── Active Execution ───────────────────────────────────────────────────────
+    active_step_results    = run["active_step_results"]
+    active_step_retries_list = run["active_step_retries"]
+    active_resolves_list   = run["active_resolves"]
+    active_complete        = run.get("active_complete")
+
+    if active_step_results:
+        by_retry: dict[int, list] = {}
+        for ev in active_step_results:
+            r = ev.get("step_retry", 0)
+            by_retry.setdefault(r, []).append(ev)
+
+        # retry_map[step_retry] → active_step_retry event that triggered this re-solve
+        retry_map   = {ev.get("step_retry"): ev for ev in active_step_retries_list}
+        resolve_map = {ev.get("step_retry"): ev for ev in active_resolves_list}
+
+        total_steps = len(active_step_results)
+        n_success   = sum(1 for ev in active_step_results if ev.get("success"))
+        n_failed    = total_steps - n_success
+
+        summary_badges = ""
+        if n_failed:
+            summary_badges += f' <span class="badge b-orange">{n_failed} failed</span>'
+        if n_success:
+            summary_badges += f' <span class="badge b-green">{n_success} succeeded</span>'
+
+        active_parts: list[str] = []
+        for retry_num in sorted(by_retry):
+            if retry_num > 0:
+                retry   = retry_map.get(retry_num, {})
+                pinned  = retry.get("pinned_vms", [])
+                resolve = resolve_map.get(retry_num, {})
+                failed_step = retry.get("step", "?")
+                pinned_str = ", ".join(h(v) for v in sorted(pinned)) if pinned else "none"
+                resolve_badge_html = (
+                    " " + _status_badge(resolve.get("status", "?"))
+                    if resolve else ""
+                )
+                active_parts.append(
+                    f'<div class="sub-heading" style="color:var(--orange)">'
+                    f'⟳ Retry {retry_num} (after step {h(str(failed_step))} failed)'
+                    f' — {len(pinned)} VM(s) re-pinned:'
+                    f' {pinned_str}{resolve_badge_html}</div>'
+                )
+
+            rows: list[str] = []
+            for ev in by_retry[retry_num]:
+                success = ev.get("success", False)
+                result_cell = (
+                    '<span style="color:var(--green)">✓</span>'
+                    if success else
+                    '<span style="color:var(--red)">✗</span>'
+                )
+                error_cell = (
+                    f' <span style="color:var(--red);font-size:11px">{h(ev["error"])}</span>'
+                    if ev.get("error") else ""
+                )
+                rows.append(
+                    "<tr>"
+                    f'<td class="mono">{h(ev.get("vm", ""))}</td>'
+                    f'<td class="mono">{h(str(ev.get("step", "")))}</td>'
+                    f'<td class="mono">{h(ev.get("expected") or "—")}</td>'
+                    f'<td class="mono">{h(str(ev.get("actual") or "—"))}</td>'
+                    f"<td>{result_cell}{error_cell}</td>"
+                    "</tr>"
+                )
+            active_parts.append(
+                '<div class="tbl-wrap"><table>'
+                "<thead><tr>"
+                "<th>VM</th><th>Step</th><th>Expected</th><th>Actual</th><th>Result</th>"
+                "</tr></thead>"
+                f"<tbody>{''.join(rows)}</tbody>"
+                "</table></div>"
+            )
+
+        # active_complete summary footer
+        if active_complete:
+            total_retries = active_complete.get("step_retries", 0)
+            pinned_vms    = active_complete.get("pinned_vms", [])
+            if pinned_vms:
+                pinned_str = ", ".join(h(v) for v in pinned_vms)
+                footer = (
+                    f'<div style="padding:9px 16px;font-size:12px;color:var(--muted)">'
+                    f'Complete: {total_retries} re-solve(s) · '
+                    f'Permanently pinned: {pinned_str}</div>'
+                )
+            else:
+                footer = (
+                    f'<div style="padding:9px 16px;font-size:12px;color:var(--muted)">'
+                    f'Complete: {total_retries} re-solve(s) · All VMs placed successfully</div>'
+                )
+            active_parts.append(footer)
+
+        active_exec_section = (
+            '<div class="section">'
+            f'<div class="section-title">⟳ Active Execution{summary_badges}'
+            f'<span class="count">'
+            f'{total_steps} VM step(s) · {len(by_retry)} solve pass(es)'
+            f'</span></div>'
+            f'{"".join(active_parts)}'
+            "</div>"
+        )
+    else:
+        active_exec_section = ""
+
     # ── Error ─────────────────────────────────────────────────────────────────
     if run["error"]:
         err = run["error"]
@@ -681,6 +809,7 @@ def _render_run(run: dict[str, Any], output_dir: Path) -> None:
         f"{c_section}"
         f"{proxlb_plan_section}"
         f"{plan_section}"
+        f"{active_exec_section}"
         f"{cmp_section}"
         f"{err_section}"
         "</div>"

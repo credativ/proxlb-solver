@@ -390,16 +390,17 @@ class TestProxLBActionsInShadow:
     def test_run_shadow_returns_file_path(self, tmp_path):
         from proxlb_solver.shadow import run_shadow
         from tests.unit.test_shadow import _MINIMAL_PROXLB_DATA
-        result = run_shadow(_MINIMAL_PROXLB_DATA, {"log_dir": str(tmp_path)})
-        assert result is not None
-        assert result.endswith(".jsonl")
+        run_file, _plan = run_shadow(_MINIMAL_PROXLB_DATA, {"log_dir": str(tmp_path)})
+        assert run_file is not None
+        assert run_file.endswith(".jsonl")
 
     def test_run_shadow_returns_none_on_bad_dir(self):
         from proxlb_solver.shadow import run_shadow
         from tests.unit.test_shadow import _MINIMAL_PROXLB_DATA
-        result = run_shadow(_MINIMAL_PROXLB_DATA,
-                            {"log_dir": "/proc/nonexistent_proxlb/deep"})
-        assert result is None
+        run_file, plan = run_shadow(_MINIMAL_PROXLB_DATA,
+                                    {"log_dir": "/proc/nonexistent_proxlb/deep"})
+        assert run_file is None
+        assert plan is None
 
     def test_proxlb_action_events_emitted(self, tmp_path):
         import json, os
@@ -431,7 +432,7 @@ class TestProxLBActionsInShadow:
         import json, os
         from proxlb_solver.shadow import run_shadow, finalize_run
         from tests.unit.test_shadow import _MINIMAL_PROXLB_DATA
-        run_file = run_shadow(_MINIMAL_PROXLB_DATA, {"log_dir": str(tmp_path)})
+        run_file, _plan = run_shadow(_MINIMAL_PROXLB_DATA, {"log_dir": str(tmp_path)})
         finalize_run(run_file, dry_run=False)
         events = [json.loads(l) for l in open(run_file) if l.strip()]
         executed = [e for e in events if e["event"] == "proxlb_executed"]
@@ -442,7 +443,7 @@ class TestProxLBActionsInShadow:
         import json, os
         from proxlb_solver.shadow import run_shadow, finalize_run
         from tests.unit.test_shadow import _MINIMAL_PROXLB_DATA
-        run_file = run_shadow(_MINIMAL_PROXLB_DATA, {"log_dir": str(tmp_path)})
+        run_file, _plan = run_shadow(_MINIMAL_PROXLB_DATA, {"log_dir": str(tmp_path)})
         finalize_run(run_file, dry_run=True)
         events = [json.loads(l) for l in open(run_file) if l.strip()]
         executed = [e for e in events if e["event"] == "proxlb_executed"]
@@ -458,6 +459,91 @@ class TestProxLBActionsInShadow:
         files = [f for f in os.listdir(tmp_path) if f.endswith(".jsonl")]
         events = [json.loads(l) for l in open(os.path.join(tmp_path, files[0])) if l.strip()]
         assert not any(e["event"] == "proxlb_action" for e in events)
+
+
+# ---------------------------------------------------------------------------
+# Active mode — Mode badge + Active Execution section
+# ---------------------------------------------------------------------------
+
+def _active_run_events() -> list[dict]:
+    """JSONL events for an active-mode run with one failed step and one retry."""
+    base = _optimal_run(migrations=2)
+    # Inject mode=active into the solver_run event
+    base = [
+        {**e, "mode": "active"} if e.get("event") == "solver_run" else e
+        for e in base
+    ]
+    base.extend([
+        # step_retry=0: initial solve pass
+        {"event": "active_step_result", "ts": _ts(), "step_retry": 0,
+         "step": 1, "vm": "vm-1", "expected": "node2", "actual": "node2", "success": True},
+        {"event": "active_step_result", "ts": _ts(), "step_retry": 0,
+         "step": 2, "vm": "vm-3", "expected": "node3", "actual": "node1", "success": False},
+        # step 2 failed → re-solve triggered
+        {"event": "active_step_retry", "ts": _ts(), "step": 2, "step_retry": 1,
+         "pinned_vms": ["vm-3"]},
+        {"event": "active_resolve",    "ts": _ts(), "step_retry": 1,
+         "status": "OPTIMAL", "migrations": 1, "feasible": True},
+        # step_retry=1: re-solve pass (vm-3 pinned, only vm-1-like moves remain)
+        {"event": "active_step_result", "ts": _ts(), "step_retry": 1,
+         "step": 1, "vm": "vm-3", "expected": "node3", "actual": "node3", "success": True},
+        # summary
+        {"event": "active_complete", "ts": _ts(),
+         "step_retries": 1, "pinned_vms": ["vm-3"]},
+    ])
+    return base
+
+
+class TestActiveMode:
+
+    @pytest.fixture
+    def active_detail_html(self, tmp_path) -> str:
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir()
+        _write_jsonl(log_dir / "solver_run_20260226_143000.jsonl", _active_run_events())
+
+        from proxlb_solver.shadow_reporter import generate_report
+        out = tmp_path / "out"
+        generate_report(log_dir, out)
+        return (out / "solver_run_20260226_143000.html").read_text(encoding="utf-8")
+
+    @pytest.fixture
+    def shadow_detail_html(self, tmp_path) -> str:
+        """Detail page for a shadow-mode run (no 'mode' field in solver_run)."""
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir()
+        _write_jsonl(log_dir / "solver_run_20260226_143000.jsonl", _optimal_run())
+
+        from proxlb_solver.shadow_reporter import generate_report
+        out = tmp_path / "out"
+        generate_report(log_dir, out)
+        return (out / "solver_run_20260226_143000.html").read_text(encoding="utf-8")
+
+    def test_detail_shows_active_mode_badge(self, active_detail_html):
+        assert "ACTIVE" in active_detail_html
+
+    def test_detail_shows_shadow_mode_badge_by_default(self, shadow_detail_html):
+        assert "SHADOW" in shadow_detail_html
+
+    def test_detail_shows_active_execution_section(self, active_detail_html):
+        assert "Active Execution" in active_detail_html
+
+    def test_detail_shows_step_results(self, active_detail_html):
+        # vm-1 success and vm-3 failure are both rendered
+        assert "vm-1" in active_detail_html
+        assert "vm-3" in active_detail_html
+
+    def test_detail_shows_retry_section(self, active_detail_html):
+        assert "Retry" in active_detail_html
+        # Pinned VM list
+        assert "vm-3" in active_detail_html
+
+    def test_detail_no_active_section_for_shadow_run(self, shadow_detail_html):
+        assert "Active Execution" not in shadow_detail_html
+
+    def test_detail_retry_shows_resolve_status_badge(self, active_detail_html):
+        # The OPTIMAL re-solve badge appears in the retry sub-heading
+        assert "OPTIMAL" in active_detail_html
 
 
 class TestHtmlEscaping:

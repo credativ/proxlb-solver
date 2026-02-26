@@ -140,3 +140,67 @@ def test_reservation_clamped_to_raw_memory():
     assert node1.memory_reserve <= node1.memory_total, (
         "Reserve must never exceed memory_total"
     )
+
+
+# ---------------------------------------------------------------------------
+# pin_vms parameter tests
+# ---------------------------------------------------------------------------
+
+_DATA_WITH_GUEST = {
+    "meta": {"cluster_name": "test", "balancing": {}},
+    "nodes": {
+        "node1": {
+            "cpu_total": 4,
+            "memory_total": 8 * _GB,
+            "memory_used": 1 * _GB,
+            "memory_free": 7 * _GB,
+            "disk_free": 50 * _GB,
+            "maintenance": False,
+        }
+    },
+    "guests": {
+        "vm-pinned": {
+            "node_current": "node1",
+            "node_target": None,
+            "cpu_total": 2,
+            "memory_total": 2 * _GB,
+            "cpu_used": 0.1,
+            "type": "vm",
+            "priority": 2,
+            "ha_rules": [],
+            "tags": [],
+            "pools": [],
+        }
+    },
+}
+
+
+def test_pin_vms_parameter_pins_to_current_node():
+    """When pin_vms contains a VM name a pin rule to its current node is added."""
+    from proxlb_solver.adapter import from_proxlb_data
+
+    cluster = from_proxlb_data(_DATA_WITH_GUEST, pin_vms={"vm-pinned"})
+
+    pin = next((r for r in cluster.constraints.pin if r["vm"] == "vm-pinned"), None)
+    assert pin is not None, "Expected a pin rule for vm-pinned"
+    assert "node1" in pin["nodes"], "Pin rule must include the current node"
+    assert any(
+        o.get("origin") == "solver" and o.get("source") == "migration_failed"
+        for o in pin.get("origins", [])
+    ), "Pin rule origins must record migration_failed source"
+
+
+def test_pin_vms_none_adds_no_extra_pins():
+    """pin_vms=None must not add any extra pin rules."""
+    from proxlb_solver.adapter import from_proxlb_data
+
+    cluster = from_proxlb_data(_DATA_WITH_GUEST, pin_vms=None)
+    assert not any(r["vm"] == "vm-pinned" for r in cluster.constraints.pin)
+
+
+def test_pin_vms_empty_set_adds_no_extra_pins():
+    """pin_vms=set() must not add any extra pin rules."""
+    from proxlb_solver.adapter import from_proxlb_data
+
+    cluster = from_proxlb_data(_DATA_WITH_GUEST, pin_vms=set())
+    assert not any(r["vm"] == "vm-pinned" for r in cluster.constraints.pin)

@@ -53,15 +53,16 @@ def _make_run_file(log_dir: str) -> str:
 # Public API
 # ---------------------------------------------------------------------------
 
-def run_shadow(proxlb_data: dict, solver_cfg: dict):
+def run_shadow(proxlb_data: dict, solver_cfg: dict) -> tuple:
     """Run solver in shadow mode.
 
     Writes a structured JSONL file to solver_cfg['log_dir'] and logs one
     summary line to the 'proxlb' logger. Never modifies the cluster.
 
-    Returns the path to the created run file (str) so the caller can later
-    append a ``proxlb_executed`` event via :func:`finalize_run`. Returns
-    ``None`` if the log directory could not be created.
+    Returns ``(run_file_path, migration_plan)`` where *run_file_path* is the
+    path to the created JSONL file (``None`` when the directory cannot be
+    created) and *migration_plan* is the :class:`MigrationPlan` produced by
+    the solver (``None`` on infeasibility or error).
     """
     import logging
     log = logging.getLogger("proxlb")
@@ -72,17 +73,18 @@ def run_shadow(proxlb_data: dict, solver_cfg: dict):
         run_file = _make_run_file(log_dir)
     except OSError as exc:
         log.warning(f"[solver] cannot create log_dir={log_dir!r}: {exc}")
-        return None
+        return None, None
 
+    _plan = None
     try:
         with open(run_file, "w") as f:
-            _shadow_inner(proxlb_data, solver_cfg, f, log, run_file)
+            _plan = _shadow_inner(proxlb_data, solver_cfg, f, log, run_file)
     except Exception as exc:
         # Safety net — _shadow_inner handles its own errors; this catches
         # unexpected failures outside that scope (e.g. file write errors).
         log.warning(f"[solver] shadow run failed: {exc}")
 
-    return run_file
+    return run_file, _plan
 
 
 def finalize_run(run_file: str, dry_run: bool = False) -> None:
@@ -113,7 +115,7 @@ def _shadow_inner(
     f: IO,
     log: Any,
     run_file: str,
-) -> None:
+) -> Any:
     try:
         # Log ProxLB's planned migrations first — independent of the solver,
         # so they are always captured even if cluster building or solving fails.
@@ -145,6 +147,7 @@ def _shadow_inner(
 
         _write(f, {
             "event": "solver_run",
+            "mode": solver_cfg.get("mode", "shadow"),
             "status": solution.stats.status,
             "migrations": solution.stats.migration_count,
             "gap": round(solution.stats.load_gap, 6),
@@ -162,7 +165,7 @@ def _shadow_inner(
 
         if not solution.feasible:
             _write(f, {"event": "infeasible", "blocking_vms": solution.blocking_vms})
-            return
+            return None
 
         plan = plan_migrations(cluster, solution)
 
@@ -184,6 +187,7 @@ def _shadow_inner(
             _write(f, {"event": "unbreakable_cycle", "vms": plan.unbreakable_cycle})
 
         _write_comparison(proxlb_data, solution, f)
+        return plan
 
     except Exception as exc:
         _write(f, {
@@ -192,6 +196,7 @@ def _shadow_inner(
             "traceback": traceback.format_exc(),
         })
         log.warning(f"[solver] shadow run failed: {exc}")
+        return None
 
 
 def _write_proxlb_plan(proxlb_data: dict, f: IO) -> None:
@@ -292,3 +297,275 @@ def _write_comparison(proxlb_data: dict, solution: Any, f: IO) -> None:
         else:
             _write(f, {"event": "compare", "vm": vm, "result": "proxlb_only",
                         "proxlb_target": pv})
+
+
+# ---------------------------------------------------------------------------
+# Active mode — feedback loop execution
+# ---------------------------------------------------------------------------
+
+def _append_run_event(run_file: str | None, event: dict) -> None:
+    """Append one event dict to the run JSONL file; silently swallows errors."""
+    if not run_file:
+        return
+    try:
+        with open(run_file, "a") as f:
+            _write(f, event)
+    except OSError:
+        pass
+
+
+def _log_step_retry(
+    run_file: str | None,
+    failed_step: int,
+    step_retry: int,
+    pinned_vms: set,
+) -> None:
+    """Append an ``active_step_retry`` event when a step triggers a re-solve.
+
+    Fields:
+      step        — the step number that failed and triggered this retry
+      step_retry  — monotonically increasing counter across all re-solves
+      pinned_vms  — all VMs pinned to their current node so far
+    """
+    _append_run_event(run_file, {
+        "event": "active_step_retry",
+        "step": failed_step,
+        "step_retry": step_retry,
+        "pinned_vms": sorted(pinned_vms),
+    })
+
+
+def _log_resolve(run_file: str | None, solution: Any, step_retry: int) -> None:
+    """Append an ``active_resolve`` event with the re-solve outcome.
+
+    Fields:
+      step_retry  — which retry number triggered this re-solve
+      status      — CP-SAT status string (e.g. "OPTIMAL", "INFEASIBLE")
+      migrations  — number of migrations in the new plan (0 if infeasible)
+      feasible    — whether the re-solve found a valid placement
+    """
+    _append_run_event(run_file, {
+        "event": "active_resolve",
+        "step_retry": step_retry,
+        "status": solution.stats.status,
+        "migrations": solution.stats.migration_count,
+        "feasible": solution.feasible,
+    })
+
+
+def _verify_step(proxmox_api: Any, step_migrations: dict) -> dict:
+    """Query actual VM locations via the PVE cluster API.
+
+    Returns a dict mapping ``vm_name → actual_node`` (``None`` when the VM
+    cannot be found or the API call fails, which is treated as failure).
+    """
+    try:
+        resources = proxmox_api.cluster.resources.get(type="vm")
+    except Exception:
+        # API failure — treat every VM as unverified (None → counted as failed).
+        return {vm: None for vm in step_migrations}
+    actual_nodes = {r.get("name"): r.get("node") for r in resources if r.get("name")}
+    return {vm: actual_nodes.get(vm) for vm in step_migrations}
+
+
+def _execute_single_step(
+    proxmox_api: Any,
+    proxlb_data: dict,
+    step: Any,
+    guests: dict,
+    run_file: str | None,
+    step_retry: int = 0,
+) -> set:
+    """Execute one MigrationStep via ProxLB Balancing; return failed VM names.
+
+    Steps:
+      1. Clears all ``node_target`` values in *guests*, then sets only the
+         targets for VMs in this step.
+      2. Calls ``Balancing()`` to trigger the actual migrations.  If Balancing
+         raises, every VM in the step is recorded as failed immediately
+         (no verification attempted — cluster state is unknown).
+      3. Verifies actual VM placement via the PVE cluster API.
+      4. Updates ``node_current`` for VMs that reached their expected node.
+      5. Appends an ``active_step_result`` event for every VM with full detail:
+         step_retry, step number, vm name, expected node, actual node,
+         success flag, and (on Balancing exception) the error message.
+
+    Returns the set of VM names that did *not* reach their expected node.
+    """
+    from proxlb.models.balancing import Balancing as _Balancing  # late import
+
+    # Reset all targets; only this step's VMs receive a node_target.
+    for gd in guests.values():
+        gd["node_target"] = None
+
+    step_migrations: dict = {}
+    for m in step.migrations:
+        if m.vm in guests:
+            guests[m.vm]["node_target"] = m.target
+            step_migrations[m.vm] = m.target
+
+    if not step_migrations:
+        return set()
+
+    try:
+        _Balancing(proxmox_api, proxlb_data)
+    except Exception as exc:
+        # Balancing raised — record every VM in this step as failed.
+        # Skip verification: the cluster state after a partial/failed
+        # Balancing call is unknown and should not be trusted.
+        for vm_name, expected in step_migrations.items():
+            _append_run_event(run_file, {
+                "event": "active_step_result",
+                "step_retry": step_retry,
+                "step": step.step,
+                "vm": vm_name,
+                "expected": expected,
+                "actual": None,
+                "success": False,
+                "error": str(exc),
+            })
+        return set(step_migrations)
+
+    actual_map = _verify_step(proxmox_api, step_migrations)
+    newly_failed: set = set()
+
+    for vm_name, expected in step_migrations.items():
+        actual = actual_map.get(vm_name)
+        success = actual == expected
+
+        if success and vm_name in guests:
+            guests[vm_name]["node_current"] = expected
+
+        _append_run_event(run_file, {
+            "event": "active_step_result",
+            "step_retry": step_retry,
+            "step": step.step,
+            "vm": vm_name,
+            "expected": expected,
+            "actual": actual,
+            "success": success,
+        })
+
+        if not success:
+            newly_failed.add(vm_name)
+
+    return newly_failed
+
+
+def execute_solver_plan(
+    proxmox_api: Any,
+    proxlb_data: dict,
+    initial_plan: Any,
+    solver_cfg: dict,
+    run_file: str | None = None,
+) -> None:
+    """Execute the solver's plan via ProxLB Balancing, with per-step re-solve.
+
+    Feedback loop — for each step in the plan:
+      1. Execute the step via ``_execute_single_step()`` (Balancing + verify).
+      2. If the step succeeds, advance to the next step.
+      3. If the step fails (any VM missed its target or Balancing raised):
+         a. Pin all failed VMs to their current node.
+         b. Re-solve from the current cluster state (``node_current`` already
+            updated for previously succeeded steps).
+         c. Replace *plan* with the new plan and restart from step 0.
+         d. Repeat until all steps succeed, the re-solve is infeasible, or
+            ``active_step_retries`` re-solves have been exhausted.
+
+    At the end an ``active_complete`` event is appended summarising the total
+    number of re-solves and which VMs were permanently pinned.
+
+    After the loop, PVE-deferred / unbreakable-cycle / pinned VMs have their
+    original ProxLB ``node_target`` restored so PVE HA can handle them.
+
+    Config keys read from *solver_cfg*:
+      active_step_retries  — max re-solve attempts (default: 3)
+      use_reservations     — passed through to from_proxlb_data
+      timeout_seconds      — CP-SAT time limit per solve
+    """
+    import logging
+    from proxlb.models.balancing import Balancing as _Balancing  # late import
+
+    log = logging.getLogger("proxlb")
+
+    max_step_retries = int(solver_cfg.get("active_step_retries", 3))
+    use_res          = bool(solver_cfg.get("use_reservations", True))
+    time_limit       = float(solver_cfg.get("timeout_seconds", 30.0))
+
+    plan   = initial_plan
+    pinned: set = set()
+    guests = proxlb_data.get("guests", {})
+    orig_targets = {n: gd.get("node_target") for n, gd in guests.items()}
+
+    step_retry = 0   # counts re-solves, not plan iterations
+    step_idx   = 0   # position in current plan.steps list
+
+    while step_idx < len(plan.steps):
+        step = plan.steps[step_idx]
+
+        failed = _execute_single_step(
+            proxmox_api, proxlb_data, step, guests, run_file, step_retry
+        )
+
+        if not failed:
+            step_idx += 1
+            continue
+
+        # ── Step had failures ────────────────────────────────────────────────
+        pinned |= failed
+        step_retry += 1
+
+        if step_retry > max_step_retries:
+            log.warning(
+                f"[solver] active_step_retries={max_step_retries} exhausted "
+                f"after step {step.step}; {len(pinned)} VM(s) remain unplaced"
+            )
+            break
+
+        # Re-solve from the current cluster state.
+        # node_current has already been updated for all steps that succeeded,
+        # so the new plan starts from the real post-migration placement.
+        _log_step_retry(run_file, step.step, step_retry, pinned)
+
+        from .adapter import from_proxlb_data
+        from .solver import solve
+        from .planner import plan_migrations as _plan_migs
+
+        cluster  = from_proxlb_data(proxlb_data, use_reservations=use_res,
+                                    pin_vms=pinned)
+        solution = solve(cluster, time_limit_s=time_limit)
+        _log_resolve(run_file, solution, step_retry)
+
+        if not solution.feasible:
+            log.warning(
+                f"[solver] active re-solve step_retry={step_retry} infeasible; "
+                "giving up"
+            )
+            break
+
+        plan     = _plan_migs(cluster, solution)
+        step_idx = 0  # restart from the beginning of the new plan
+
+    # ── Summary event ────────────────────────────────────────────────────────
+    _append_run_event(run_file, {
+        "event": "active_complete",
+        "step_retries": step_retry,
+        "pinned_vms": sorted(pinned),
+    })
+
+    # ── Final pass ───────────────────────────────────────────────────────────
+    # Restore original ProxLB node_target for VMs the solver could not place
+    # (PVE-deferred, unbreakable cycles, persistently failed migrations).
+    # PVE HA will handle them via one final Balancing() call.
+    remainder = set(plan.pve_deferred) | set(plan.unbreakable_cycle) | pinned
+    for vm_name in remainder:
+        if vm_name in guests:
+            guests[vm_name]["node_target"] = orig_targets.get(vm_name)
+    if any(
+        guests[n].get("node_target") != guests[n].get("node_current")
+        for n in remainder if n in guests
+    ):
+        try:
+            _Balancing(proxmox_api, proxlb_data)
+        except Exception as exc:
+            log.warning(f"[solver] remainder Balancing() failed: {exc}")
