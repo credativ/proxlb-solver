@@ -499,34 +499,61 @@ def execute_solver_plan(
     guests = proxlb_data.get("guests", {})
     orig_targets = {n: gd.get("node_target") for n, gd in guests.items()}
 
+    n_steps = len(plan.steps)
+    n_vms   = sum(len(s.migrations) for s in plan.steps)
+    log.info(
+        f"[solver] active: executing plan — {n_steps} step(s), {n_vms} VM(s), "
+        f"max_step_retries={max_step_retries}"
+    )
+
     step_retry = 0   # counts re-solves, not plan iterations
     step_idx   = 0   # position in current plan.steps list
 
     while step_idx < len(plan.steps):
         step = plan.steps[step_idx]
+        vms_in_step = [m.vm for m in step.migrations]
+        log.info(
+            f"[solver] active: step {step.step} "
+            f"(retry={step_retry}) — "
+            f"{', '.join(f'{m.vm} {m.source}→{m.target}' for m in step.migrations)}"
+        )
 
         failed = _execute_single_step(
             proxmox_api, proxlb_data, step, guests, run_file, step_retry
         )
 
         if not failed:
+            succeeded = set(vms_in_step) - failed
+            log.info(
+                f"[solver] active: step {step.step} succeeded "
+                f"({len(vms_in_step)} VM(s) migrated)"
+            )
             step_idx += 1
             continue
 
         # ── Step had failures ────────────────────────────────────────────────
+        log.warning(
+            f"[solver] active: step {step.step} failed — "
+            f"{sorted(failed)} did not reach expected node"
+        )
         pinned |= failed
         step_retry += 1
 
         if step_retry > max_step_retries:
             log.warning(
-                f"[solver] active_step_retries={max_step_retries} exhausted "
-                f"after step {step.step}; {len(pinned)} VM(s) remain unplaced"
+                f"[solver] active: max_step_retries={max_step_retries} exhausted "
+                f"after step {step.step}; {len(pinned)} VM(s) remain unplaced: "
+                f"{sorted(pinned)}"
             )
             break
 
         # Re-solve from the current cluster state.
         # node_current has already been updated for all steps that succeeded,
         # so the new plan starts from the real post-migration placement.
+        log.info(
+            f"[solver] active: re-solving (step_retry={step_retry}) with "
+            f"{len(pinned)} VM(s) pinned: {sorted(pinned)}"
+        )
         _log_step_retry(run_file, step.step, step_retry, pinned)
 
         from .adapter import from_proxlb_data
@@ -540,13 +567,18 @@ def execute_solver_plan(
 
         if not solution.feasible:
             log.warning(
-                f"[solver] active re-solve step_retry={step_retry} infeasible; "
+                f"[solver] active: re-solve step_retry={step_retry} infeasible; "
                 "giving up"
             )
             break
 
         plan     = _plan_migs(cluster, solution)
         step_idx = 0  # restart from the beginning of the new plan
+        log.info(
+            f"[solver] active: new plan after re-solve — "
+            f"{len(plan.steps)} step(s), "
+            f"{sum(len(s.migrations) for s in plan.steps)} VM(s)"
+        )
 
     # ── Summary event ────────────────────────────────────────────────────────
     _append_run_event(run_file, {
@@ -554,6 +586,16 @@ def execute_solver_plan(
         "step_retries": step_retry,
         "pinned_vms": sorted(pinned),
     })
+    if pinned:
+        log.warning(
+            f"[solver] active: complete — {step_retry} re-solve(s), "
+            f"{len(pinned)} VM(s) permanently skipped: {sorted(pinned)}"
+        )
+    else:
+        log.info(
+            f"[solver] active: complete — {step_retry} re-solve(s), "
+            f"all VMs placed successfully"
+        )
 
     # ── Final pass ───────────────────────────────────────────────────────────
     # Restore original ProxLB node_target for VMs the solver could not place
@@ -567,7 +609,8 @@ def execute_solver_plan(
         guests[n].get("node_target") != guests[n].get("node_current")
         for n in remainder if n in guests
     ):
+        log.info(f"[solver] active: handing {len(remainder)} remainder VM(s) to ProxLB Balancing")
         try:
             _Balancing(proxmox_api, proxlb_data)
         except Exception as exc:
-            log.warning(f"[solver] remainder Balancing() failed: {exc}")
+            log.warning(f"[solver] active: remainder Balancing() failed: {exc}")
