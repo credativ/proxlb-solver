@@ -542,6 +542,9 @@ def _render_run(run: dict[str, Any], output_dir: Path) -> None:
     else:
         c_section = ""
 
+    # Determine mode early — needed for ProxLB plan badge and compare suppression
+    is_active = (sr or {}).get("mode") == "active"
+
     # ── ProxLB migration plan ─────────────────────────────────────────────────
     proxlb_actions  = run["proxlb_actions"]
     proxlb_executed = run["proxlb_executed"]
@@ -549,6 +552,8 @@ def _render_run(run: dict[str, Any], output_dir: Path) -> None:
     if proxlb_executed is not None:
         if proxlb_executed.get("dry_run"):
             exec_badge = ' <span class="badge b-muted">dry run — not executed</span>'
+        elif is_active:
+            exec_badge = ' <span class="badge b-blue">solver overrides</span>'
         else:
             exec_badge = ' <span class="badge b-green">executed</span>'
     else:
@@ -741,17 +746,12 @@ def _render_run(run: dict[str, Any], output_dir: Path) -> None:
                 step_evs    = by_retry_step[retry_num][step_num]
                 step_ok     = sum(1 for e in step_evs if e.get("success"))
                 step_failed = len(step_evs) - step_ok
-                parallel    = any(
-                    plan_step_map.get((step_num, e.get("vm")), {}).get("parallel")
-                    for e in step_evs
-                )
-                par_badge   = ' <span class="badge b-muted">parallel</span>' if parallel else ""
                 step_badge  = (
                     f' <span class="badge b-green">{step_ok} ok</span>'
                     + (f' <span class="badge b-red">{step_failed} failed</span>' if step_failed else "")
                 )
                 active_parts.append(
-                    f'<div class="sub-heading">Step {step_num}{par_badge}{step_badge}</div>'
+                    f'<div class="sub-heading">Step {step_num}{step_badge}</div>'
                 )
 
                 rows: list[str] = []
@@ -838,7 +838,6 @@ def _render_run(run: dict[str, Any], output_dir: Path) -> None:
     # In active mode, suppress the comparison section when ProxLB had no
     # independent plan (all VMs show as solver_only, which is expected and
     # not useful to display).
-    is_active = (run["solver_run"] or {}).get("mode") == "active"
     if is_active and all(c.get("result") == "solver_only" for c in run["compare"]):
         cmp_section = ""
 
