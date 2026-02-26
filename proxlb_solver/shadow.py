@@ -67,7 +67,24 @@ def run_shadow(proxlb_data: dict, solver_cfg: dict) -> tuple:
     import logging
     log = logging.getLogger("ProxLB")
 
-    log_dir = solver_cfg.get("log_dir", "/var/log/proxlb/solver")
+    mode              = solver_cfg.get("mode", "shadow")
+    log_dir           = solver_cfg.get("log_dir", "/var/log/proxlb/solver")
+    use_reservations  = bool(solver_cfg.get("use_reservations", True))
+    timeout_seconds   = float(solver_cfg.get("timeout_seconds", 30.0))
+    balanciness       = solver_cfg.get("balanciness", "(from balancing config)")
+    method            = solver_cfg.get("method", "(from balancing config)")
+    max_step_retries  = int(solver_cfg.get("active_step_retries", 3))
+
+    log.info(
+        f"[solver] starting — "
+        f"mode={mode}  "
+        f"log_dir={log_dir}  "
+        f"use_reservations={use_reservations}  "
+        f"timeout={timeout_seconds}s  "
+        f"balanciness={balanciness}  "
+        f"method={method}"
+        + (f"  active_step_retries={max_step_retries}" if mode == "active" else "")
+    )
 
     try:
         run_file = _make_run_file(log_dir)
