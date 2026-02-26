@@ -91,7 +91,7 @@ def test_run_shadow_creates_jsonl_with_solver_run_event(tmp_path, caplog):
 
     solver_cfg = {"enable": True, "log_dir": str(tmp_path)}
 
-    with caplog.at_level(logging.INFO, logger="proxlb"):
+    with caplog.at_level(logging.INFO, logger="ProxLB"):
         run_shadow(_MINIMAL_PROXLB_DATA, solver_cfg)
 
     run_file = _run_file(str(tmp_path))
@@ -115,7 +115,7 @@ def test_run_shadow_emits_single_summary_to_main_log(tmp_path, caplog):
 
     solver_cfg = {"enable": True, "log_dir": str(tmp_path)}
 
-    with caplog.at_level(logging.INFO, logger="proxlb"):
+    with caplog.at_level(logging.INFO, logger="ProxLB"):
         run_shadow(_MINIMAL_PROXLB_DATA, solver_cfg)
 
     solver_lines = [r.message for r in caplog.records if r.message.startswith("[solver] run=")]
@@ -183,7 +183,7 @@ def test_run_shadow_invalid_log_dir_logs_warning(caplog):
     invalid_dir = "/proc/nonexistent_proxlb_solver_dir/deep/path"
     solver_cfg = {"log_dir": invalid_dir}
 
-    with caplog.at_level(logging.WARNING, logger="proxlb"):
+    with caplog.at_level(logging.WARNING, logger="ProxLB"):
         run_shadow(_MINIMAL_PROXLB_DATA, solver_cfg)
 
     warning_lines = [r.message for r in caplog.records if "cannot create log_dir" in r.message]

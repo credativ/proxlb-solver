@@ -65,7 +65,7 @@ def run_shadow(proxlb_data: dict, solver_cfg: dict) -> tuple:
     the solver (``None`` on infeasibility or error).
     """
     import logging
-    log = logging.getLogger("proxlb")
+    log = logging.getLogger("ProxLB")
 
     log_dir = solver_cfg.get("log_dir", "/var/log/proxlb/solver")
 
@@ -488,7 +488,7 @@ def execute_solver_plan(
     import logging
     from proxlb.models.balancing import Balancing as _Balancing  # late import
 
-    log = logging.getLogger("proxlb")
+    log = logging.getLogger("ProxLB")
 
     max_step_retries = int(solver_cfg.get("active_step_retries", 3))
     use_res          = bool(solver_cfg.get("use_reservations", True))
