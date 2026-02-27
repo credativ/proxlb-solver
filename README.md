@@ -125,6 +125,16 @@ An optimal state is worthless if it cannot be executed (e.g., no buffer space fo
 - **Scenario-driven testing** — 90+ YAML scenarios covering all edge cases.
 - **Rich Reports** — Interactive HTML with Mermaid graphs, Markdown, and JUnit XML.
 
+## ProxLB Integration
+
+This package is designed to be used as an optional component of [ProxLB](https://github.com/credativ/ProxLB).
+ProxLB loads it automatically when `solver.enable: True` is set in the configuration.
+
+For installation instructions, configuration reference (shadow/active mode, log directory, retries),
+and report generation, see the **[CP-SAT Solver section in the ProxLB README](https://github.com/credativ/ProxLB/blob/main/README.md#cp-sat-solver-optional)**.
+
+---
+
 ## Usage & Development
 
 ### Installation
