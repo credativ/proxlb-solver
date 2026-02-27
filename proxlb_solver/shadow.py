@@ -260,11 +260,15 @@ def _write_cluster_state(proxlb_data: dict, solver_cfg: dict, f: IO) -> None:
 
     guests: dict = {}
     for name, gd in proxlb_data.get("guests", {}).items():
-        guests[name] = {
+        entry: dict = {
             "node":   gd.get("node_current"),
             "memory": gd.get("memory_total", 0),
             "cpu":    gd.get("cpu_total", 1),
         }
+        # Actual balloon/RSS usage, if ProxLB collected it from the PVE agent
+        if gd.get("memory_used") is not None:
+            entry["memory_used"] = gd["memory_used"]
+        guests[name] = entry
 
     _write(f, {
         "event":  "cluster_state",
