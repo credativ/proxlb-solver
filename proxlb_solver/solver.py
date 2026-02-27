@@ -258,9 +258,11 @@ def solve(cluster: Cluster, time_limit_s: float = 30.0, forbidden_placements: li
     # Real cost of a live migration is driven by memory bandwidth (dirty-page
     # copy over the network).  CPU state is a few MB — negligible.
     # Local disk requires a full sequential copy — penalised heavily.
-    # Unit: GiB transferred.  Minimum 1 GiB per VM to keep the weight non-zero.
+    # Unit: 256 MiB chunks — fine enough to distinguish 512 MiB from 1 GiB VMs.
+    # Minimum 1 unit per VM to keep the weight non-zero for tiny containers.
     _GiB = 1024 ** 3
-    _LOCAL_DISK_FACTOR = 4   # local disk copy ≈ 4× slower/costlier than RAM
+    _COST_UNIT = 256 * 1024 * 1024   # 256 MiB granularity
+    _LOCAL_DISK_FACTOR = 4            # local disk copy ≈ 4× slower/costlier than RAM
     mig_count_list = []
     mig_cost_terms = []
     for i, vm in enumerate(vms):
@@ -268,9 +270,9 @@ def solve(cluster: Cluster, time_limit_s: float = 30.0, forbidden_placements: li
             m_var = model.new_bool_var(f"mvar_{vm.name}")
             model.add(m_var == 1 - x[i][node_idx[vm.node]])
             mig_count_list.append(m_var)
-            ram_gib  = max(1, vm.memory // _GiB)
-            disk_gib = sum(vm.disks.values()) // _GiB if vm.disks else 0
-            mig_cost_terms.append((ram_gib + _LOCAL_DISK_FACTOR * disk_gib) * m_var)
+            ram_cost  = max(1, vm.memory // _COST_UNIT)
+            disk_cost = sum(vm.disks.values()) // _COST_UNIT if vm.disks else 0
+            mig_cost_terms.append((ram_cost + _LOCAL_DISK_FACTOR * disk_cost) * m_var)
     migration_count = model.new_int_var(0, len(vms), "m_cnt")
     if mig_count_list: model.add(migration_count == sum(mig_count_list))
     else: model.add(migration_count == 0)
@@ -293,7 +295,12 @@ def solve(cluster: Cluster, time_limit_s: float = 30.0, forbidden_placements: li
         return Solution(False, {}, [], SolverStats(solver.status_name(status), 0, 0.0, 0, wall_ms), _find_blocking_vms(cluster, time_limit_s) if cluster.evacuate_node else [])
     placements = {v.name: nodes[j].name for i, v in enumerate(vms) for j in range(len(nodes)) if solver.value(x[i][j])}
     migrations = [Migration(v.name, v.node, placements[v.name]) for v in vms if placements[v.name] != v.node]
-    cost_gib   = solver.value(migration_cost) if mig_cost_terms else 0
+    # Display cost in GiB: sum of actual RAM (min 1 GiB) + 4× local disk for each migrated VM.
+    vm_by_name = {v.name: v for v in vms}
+    cost_gib = sum(
+        max(1, vm_by_name[m.vm].memory // _GiB) + _LOCAL_DISK_FACTOR * (sum(vm_by_name[m.vm].disks.values()) // _GiB if vm_by_name[m.vm].disks else 0)
+        for m in migrations
+    ) if migrations else 0
     return Solution(True, placements, migrations, SolverStats(solver.status_name(status), solver.objective_value, solver.value(load_gap) / _LOAD_SCALE, len(migrations), wall_ms, cost_gib))
 
 

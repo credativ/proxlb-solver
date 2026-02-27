@@ -607,11 +607,14 @@ def _render_run(run: dict[str, Any], output_dir: Path) -> None:
 
     # ── Solver migration plan ─────────────────────────────────────────────────
     plan_steps = run["plan_steps"]
+    _cs_guests = (run.get("cluster_state") or {}).get("guests", {})
+    _GiB_plan  = 1024 ** 3
     if plan_steps:
         by_step: dict[int, list] = {}
         for ps in plan_steps:
             by_step.setdefault(ps.get("step", 0), []).append(ps)
 
+        show_cost_col = bool(_cs_guests)
         rows: list[str] = []
         for step_num in sorted(by_step):
             migs = by_step[step_num]
@@ -619,13 +622,41 @@ def _render_run(run: dict[str, Any], output_dir: Path) -> None:
             par_badge = ' <span class="badge b-muted">parallel</span>' if par else ""
             for i, m in enumerate(migs):
                 step_cell = f"Step&nbsp;{step_num}{par_badge}" if i == 0 else ""
+                vm_name = m.get("vm", "")
+                cost_cell = ""
+                if show_cost_col:
+                    gd_vm  = _cs_guests.get(vm_name, {})
+                    ram_b  = int(gd_vm.get("memory", 0))
+                    ram_gib = max(1, ram_b // _GiB_plan)
+                    cost_cell = (
+                        f'<td class="mono" style="color:var(--muted);font-size:12px">'
+                        f'{ram_gib}&thinsp;GiB</td>'
+                    )
                 rows.append(
                     "<tr>"
                     f"<td>{step_cell}</td>"
-                    f'<td class="mono">{h(m.get("vm",""))}</td>'
+                    f'<td class="mono">{h(vm_name)}</td>'
                     f'<td class="mono">{h(m.get("source",""))} → {h(m.get("target",""))}</td>'
+                    f"{cost_cell}"
                     "</tr>"
                 )
+
+        if show_cost_col:
+            plan_thead = (
+                "<thead><tr>"
+                "<th>Step</th><th>VM</th><th>Move</th>"
+                '<th title="Configured RAM used as solver migration weight (min 1 GiB). Add 4× local disk GiB for VMs with local storage.">RAM weight</th>'
+                "</tr></thead>"
+            )
+            plan_cost_note = (
+                '<div style="padding:6px 16px 10px;font-size:11px;color:var(--muted)">'
+                'RAM weight: configured allocation (min 1&thinsp;GiB). '
+                'VMs with local disk add 4×&thinsp;disk&thinsp;GiB to migration cost.'
+                '</div>'
+            )
+        else:
+            plan_thead    = "<thead><tr><th>Step</th><th>VM</th><th>Move</th></tr></thead>"
+            plan_cost_note = ""
 
         notes = ""
         if run["pve_deferred"]:
@@ -640,9 +671,9 @@ def _render_run(run: dict[str, Any], output_dir: Path) -> None:
             f'<div class="section-title">🔧 Solver migration plan'
             f'<span class="count">{len(plan_steps)} migrations</span></div>'
             '<div class="tbl-wrap"><table>'
-            "<thead><tr><th>Step</th><th>VM</th><th>Move</th></tr></thead>"
+            f"{plan_thead}"
             f"<tbody>{''.join(rows)}</tbody>"
-            f"</table></div>{notes}</div>"
+            f"</table></div>{plan_cost_note}{notes}</div>"
         )
     elif run["infeasible"]:
         blockers = ", ".join(f"<code>{h(v)}</code>" for v in run["infeasible"].get("blocking_vms", []))
@@ -830,17 +861,25 @@ def _render_run(run: dict[str, Any], output_dir: Path) -> None:
                 gd_cs    = guests_data.get(vm_name, {})
                 mem_used = gd_cs.get("memory_used")
                 if mem_used is not None:
-                    mem_str = (
-                        f'{mem_used/GiB:.1f}&thinsp;GiB used'
-                        f'&thinsp;/&thinsp;{mem/GiB:.1f}&thinsp;GiB cfg'
+                    # Show actual RSS first, then configured (which the solver uses for weighting)
+                    rss_str = f'{mem_used/GiB:.2f}&thinsp;GiB RSS'
+                    cfg_str = (
+                        f'<span title="Configured allocation — used by solver for load balancing and migration cost"'
+                        f' style="color:var(--accent)">{mem/GiB:.1f}&thinsp;GiB cfg</span>'
                     )
+                    mem_str = f'{rss_str} &middot; {cfg_str}'
                 else:
-                    mem_str = f'{mem/GiB:.1f}&thinsp;GiB cfg' if mem else ""
+                    cfg_str = (
+                        f'<span title="Configured allocation — used by solver for load balancing and migration cost"'
+                        f' style="color:var(--accent)">{mem/GiB:.1f}&thinsp;GiB cfg</span>'
+                        if mem else ""
+                    )
+                    mem_str = cfg_str
                 cpu_str = f'{cpu}&thinsp;vCPU' if cpu else ""
                 detail  = " &middot; ".join(filter(None, [mem_str, cpu_str]))
                 parts.append(
                     f'<code>{h(vm_name)}</code>'
-                    + (f'&ensp;<span style="color:var(--muted);font-size:11px">{detail}</span>' if detail else "")
+                    + (f'&ensp;<span style="font-size:11px">{detail}</span>' if detail else "")
                 )
             return "<br>".join(parts)
 
@@ -876,8 +915,10 @@ def _render_run(run: dict[str, Any], output_dir: Path) -> None:
 
         ram_note = (
             '<div style="padding:6px 16px 10px;font-size:11px;color:var(--muted)">'
-            'RAM: actual node RSS from Proxmox API. '
-            + ('After projection uses VM configured sizes (balloon/RSS may differ).'
+            'Bars show actual node RSS (Proxmox API). '
+            '<span style="color:var(--accent)">Blue cfg values</span> = '
+            'configured allocation — the basis the solver uses for load balancing and migration cost. '
+            + ('After-state projects by adding/removing configured VM sizes.'
                if show_after else '')
             + '</div>'
         )
