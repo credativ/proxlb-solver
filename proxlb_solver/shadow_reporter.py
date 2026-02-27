@@ -686,22 +686,26 @@ def _render_run(run: dict[str, Any], output_dir: Path) -> None:
     else:
         plan_section = ""
 
-    # ── Node load: before / after ─────────────────────────────────────────────
+    # ── Cluster state: split into "before" (Ausgangslage) and "after" (Ergebnis)
     cs = run.get("cluster_state")
+    state_before_section = ""
+    state_after_section  = ""
     if cs:
         cs_method     = cs.get("method", "memory")
         nodes_data    = cs.get("nodes", {})
         guests_data   = cs.get("guests", {})
         plan_steps_ba = run["plan_steps"]
 
-        # CPU allocation per node before migrations (sum of VM cores)
+        GiB = 1024 ** 3
+
+        # CPU allocation per node before migrations (sum of VM vCPUs)
         cpu_alloc_before: dict = {n: 0 for n in nodes_data}
         for gd in guests_data.values():
             nd_name = gd.get("node")
             if nd_name in cpu_alloc_before:
                 cpu_alloc_before[nd_name] += int(gd.get("cpu", 0))
 
-        # Apply solver plan to estimate "after" state
+        # Apply solver plan to project "after" state (configured memory units)
         mem_after: dict = {n: nd.get("memory_used", 0) for n, nd in nodes_data.items()}
         cpu_after: dict = dict(cpu_alloc_before)
         for ps in plan_steps_ba:
@@ -718,7 +722,30 @@ def _render_run(run: dict[str, Any], output_dir: Path) -> None:
                 mem_after[tgt] = mem_after.get(tgt, 0) + vm_mem
                 cpu_after[tgt] = cpu_after.get(tgt, 0) + vm_cpu
 
-        GiB = 1024 ** 3
+        show_after = bool(plan_steps_ba)
+
+        # VM distribution before and after
+        vms_before: dict = {n: [] for n in nodes_data}
+        for vm_name, gd in sorted(guests_data.items()):
+            nd_name = gd.get("node")
+            if nd_name in vms_before:
+                vms_before[nd_name].append((vm_name, gd.get("memory", 0), gd.get("cpu", 0)))
+
+        vms_after: dict = {n: list(vl) for n, vl in vms_before.items()}
+        moved: set = set()
+        for ps in plan_steps_ba:
+            vm_name = ps.get("vm")
+            src     = ps.get("source")
+            tgt     = ps.get("target")
+            if vm_name in moved:
+                continue
+            moved.add(vm_name)
+            gd    = guests_data.get(vm_name, {})
+            entry = (vm_name, gd.get("memory", 0), gd.get("cpu", 0))
+            if src in vms_after:
+                vms_after[src] = [v for v in vms_after[src] if v[0] != vm_name]
+            if tgt:
+                vms_after.setdefault(tgt, []).append(entry)
 
         def _bar(pct: float, cls: str) -> str:
             w = max(0.0, min(100.0, pct))
@@ -735,124 +762,6 @@ def _render_run(run: dict[str, Any], output_dir: Path) -> None:
                 return f'<span style="color:var(--orange)">&#9650;&thinsp;{d:.1f}%</span>'
             return '<span style="color:var(--muted)">—</span>'
 
-        show_after = bool(plan_steps_ba)
-
-        # Build VM-to-node distribution before and after
-        vms_before: dict = {n: [] for n in nodes_data}
-        for vm_name, gd in sorted(guests_data.items()):
-            nd_name = gd.get("node")
-            if nd_name in vms_before:
-                vms_before[nd_name].append((vm_name, gd.get("memory", 0), gd.get("cpu", 0)))
-
-        vms_after: dict = {n: list(vl) for n, vl in vms_before.items()}
-        moved: set = set()
-        for ps in plan_steps_ba:
-            vm_name = ps.get("vm")
-            src     = ps.get("source")
-            tgt     = ps.get("target")
-            if vm_name in moved:
-                continue
-            moved.add(vm_name)
-            gd      = guests_data.get(vm_name, {})
-            entry   = (vm_name, gd.get("memory", 0), gd.get("cpu", 0))
-            if src in vms_after:
-                vms_after[src] = [v for v in vms_after[src] if v[0] != vm_name]
-            if tgt:
-                vms_after.setdefault(tgt, []).append(entry)
-
-        # Collect per-node pcts for gap calculation
-        mp_b_all: list[float] = []
-        mp_a_all: list[float] = []
-
-        load_rows: list[str] = []
-        for node_name in sorted(nodes_data):
-            nd      = nodes_data[node_name]
-            mem_tot = nd.get("memory_total", 1) or 1
-            cpu_tot = nd.get("cpu_total", 1) or 1
-
-            mem_b = nd.get("memory_used", 0)
-            mem_a = mem_after.get(node_name, mem_b)
-            cpu_b = cpu_alloc_before.get(node_name, 0)
-            cpu_a = cpu_after.get(node_name, cpu_b)
-
-            mp_b = 100 * mem_b / mem_tot
-            mp_a = 100 * mem_a / mem_tot
-            cp_b = 100 * cpu_b / cpu_tot
-            cp_a = 100 * cpu_a / cpu_tot
-            md   = mp_a - mp_b
-            cd   = cp_a - cp_b
-
-            mp_b_all.append(mp_b)
-            mp_a_all.append(mp_a)
-
-            mc_a = "bar-fill-better" if md < -0.5 else ("bar-fill-worse" if md > 0.5 else "bar-fill-neutral")
-            cc_a = "bar-fill-better" if cd < -0.5 else ("bar-fill-worse" if cd > 0.5 else "bar-fill-neutral")
-
-            mem_b_label = f'{mem_b/GiB:.1f}&thinsp;GiB&ensp;{mp_b:.1f}%'
-            mem_a_label = f'{mem_a/GiB:.1f}&thinsp;GiB&ensp;{mp_a:.1f}%'
-            cpu_b_label = f'{cpu_b}&thinsp;/&thinsp;{cpu_tot}&ensp;{cp_b:.0f}%'
-            cpu_a_label = f'{cpu_a}&thinsp;/&thinsp;{cpu_tot}&ensp;{cp_a:.0f}%'
-
-            if show_after:
-                load_rows.append(
-                    "<tr>"
-                    f'<td class="mono">{h(node_name)}</td>'
-                    f'<td><div class="load-cell">{_bar(mp_b, "bar-fill-neutral")}'
-                    f'<span class="mono">{mem_b_label}</span></div></td>'
-                    f'<td><div class="load-cell">{_bar(mp_a, mc_a)}'
-                    f'<span class="mono">{mem_a_label}</span></div></td>'
-                    f'<td>{_delta_html(md)}</td>'
-                    f'<td><div class="load-cell">{_bar(cp_b, "bar-fill-neutral")}'
-                    f'<span class="mono">{cpu_b_label}</span></div></td>'
-                    f'<td><div class="load-cell">{_bar(cp_a, cc_a)}'
-                    f'<span class="mono">{cpu_a_label}</span></div></td>'
-                    f'<td>{_delta_html(cd)}</td>'
-                    "</tr>"
-                )
-            else:
-                load_rows.append(
-                    "<tr>"
-                    f'<td class="mono">{h(node_name)}</td>'
-                    f'<td><div class="load-cell">{_bar(mp_b, "bar-fill-neutral")}'
-                    f'<span class="mono">{mem_b_label}</span></div></td>'
-                    f'<td><div class="load-cell">{_bar(cp_b, "bar-fill-neutral")}'
-                    f'<span class="mono">{cpu_b_label}</span></div></td>'
-                    "</tr>"
-                )
-
-        # Gap badge for section title
-        gap_b = max(mp_b_all) - min(mp_b_all) if mp_b_all else 0
-        gap_a = max(mp_a_all) - min(mp_a_all) if mp_a_all else 0
-        if show_after:
-            gap_cls = "b-green" if gap_a < gap_b - 0.5 else ("b-orange" if gap_a > gap_b + 0.5 else "b-muted")
-            gap_badge = (
-                f' <span class="badge b-muted">gap before: {gap_b:.1f}%</span>'
-                f' <span class="badge {gap_cls}">gap after: {gap_a:.1f}%</span>'
-            )
-        else:
-            gap_badge = f' <span class="badge b-muted">gap: {gap_b:.1f}%</span>'
-
-        if show_after:
-            load_thead = (
-                "<thead><tr>"
-                "<th>Node</th>"
-                "<th>RAM before</th><th>RAM after</th><th>Δ</th>"
-                "<th>CPU alloc before</th><th>CPU alloc after</th><th>Δ</th>"
-                "</tr></thead>"
-            )
-            after_note = (
-                ' <span class="badge b-muted">projected</span>'
-                if not is_active else ""
-            )
-        else:
-            load_thead = (
-                "<thead><tr>"
-                "<th>Node</th><th>RAM</th><th>CPU alloc</th>"
-                "</tr></thead>"
-            )
-            after_note = ""
-
-        # VM distribution sub-table
         def _vm_cell(vm_list: list) -> str:
             if not vm_list:
                 return '<span style="color:var(--muted);font-style:italic">empty</span>'
@@ -861,20 +770,18 @@ def _render_run(run: dict[str, Any], output_dir: Path) -> None:
                 gd_cs    = guests_data.get(vm_name, {})
                 mem_used = gd_cs.get("memory_used")
                 if mem_used is not None:
-                    # Show actual RSS first, then configured (which the solver uses for weighting)
                     rss_str = f'{mem_used/GiB:.2f}&thinsp;GiB RSS'
                     cfg_str = (
-                        f'<span title="Configured allocation — used by solver for load balancing and migration cost"'
+                        f'<span title="Configured allocation — solver basis for load balancing and migration cost"'
                         f' style="color:var(--accent)">{mem/GiB:.1f}&thinsp;GiB cfg</span>'
                     )
                     mem_str = f'{rss_str} &middot; {cfg_str}'
                 else:
-                    cfg_str = (
-                        f'<span title="Configured allocation — used by solver for load balancing and migration cost"'
+                    mem_str = (
+                        f'<span title="Configured allocation — solver basis for load balancing and migration cost"'
                         f' style="color:var(--accent)">{mem/GiB:.1f}&thinsp;GiB cfg</span>'
                         if mem else ""
                     )
-                    mem_str = cfg_str
                 cpu_str = f'{cpu}&thinsp;vCPU' if cpu else ""
                 detail  = " &middot; ".join(filter(None, [mem_str, cpu_str]))
                 parts.append(
@@ -883,64 +790,155 @@ def _render_run(run: dict[str, Any], output_dir: Path) -> None:
                 )
             return "<br>".join(parts)
 
-        vm_dist_rows: list[str] = []
+        # Compute per-node metrics (used by both sections)
+        node_metrics: dict = {}
+        mp_b_all: list[float] = []
+        mp_a_all: list[float] = []
         for node_name in sorted(nodes_data):
-            before_cell = _vm_cell(vms_before.get(node_name, []))
-            if show_after:
-                after_cell = _vm_cell(vms_after.get(node_name, []))
-                vm_dist_rows.append(
-                    "<tr>"
-                    f'<td class="mono">{h(node_name)}</td>'
-                    f"<td>{before_cell}</td>"
-                    f'<td style="color:var(--muted);text-align:center">→</td>'
-                    f"<td>{after_cell}</td>"
-                    "</tr>"
-                )
-            else:
-                vm_dist_rows.append(
-                    "<tr>"
-                    f'<td class="mono">{h(node_name)}</td>'
-                    f"<td>{before_cell}</td>"
-                    "</tr>"
-                )
-
-        if show_after:
-            vm_dist_thead = (
-                "<thead><tr>"
-                "<th>Node</th><th>VMs before</th><th></th><th>VMs after</th>"
-                "</tr></thead>"
+            nd      = nodes_data[node_name]
+            mem_tot = nd.get("memory_total", 1) or 1
+            cpu_tot = nd.get("cpu_total", 1) or 1
+            mem_b   = nd.get("memory_used", 0)
+            mem_a   = mem_after.get(node_name, mem_b)
+            cpu_b   = cpu_alloc_before.get(node_name, 0)
+            cpu_a   = cpu_after.get(node_name, cpu_b)
+            mp_b    = 100 * mem_b / mem_tot
+            mp_a    = 100 * mem_a / mem_tot
+            cp_b    = 100 * cpu_b / cpu_tot
+            cp_a    = 100 * cpu_a / cpu_tot
+            mp_b_all.append(mp_b)
+            mp_a_all.append(mp_a)
+            node_metrics[node_name] = dict(
+                mem_tot=mem_tot, cpu_tot=cpu_tot,
+                mem_b=mem_b, mem_a=mem_a,
+                cpu_b=cpu_b, cpu_a=cpu_a,
+                mp_b=mp_b, mp_a=mp_a, cp_b=cp_b, cp_a=cp_a,
+                md=mp_a - mp_b, cd=cp_a - cp_b,
             )
-        else:
-            vm_dist_thead = "<thead><tr><th>Node</th><th>VMs</th></tr></thead>"
 
-        ram_note = (
+        gap_b = max(mp_b_all) - min(mp_b_all) if mp_b_all else 0
+        gap_a = max(mp_a_all) - min(mp_a_all) if mp_a_all else 0
+
+        # ── Section 1: Ausgangslage (before) ──────────────────────────────────
+        before_load_rows: list[str] = []
+        before_vm_rows:   list[str] = []
+        for node_name in sorted(nodes_data):
+            m = node_metrics[node_name]
+            mem_b_label = (
+                f'{m["mem_b"]/GiB:.1f}&thinsp;GiB&ensp;{m["mp_b"]:.1f}%'
+            )
+            cpu_b_label = (
+                f'{m["cpu_b"]}&thinsp;/&thinsp;{m["cpu_tot"]}&ensp;{m["cp_b"]:.0f}%'
+            )
+            before_load_rows.append(
+                "<tr>"
+                f'<td class="mono">{h(node_name)}</td>'
+                f'<td><div class="load-cell">{_bar(m["mp_b"], "bar-fill-neutral")}'
+                f'<span class="mono">{mem_b_label}</span></div></td>'
+                f'<td><div class="load-cell">{_bar(m["cp_b"], "bar-fill-neutral")}'
+                f'<span class="mono">{cpu_b_label}</span></div></td>'
+                "</tr>"
+            )
+            before_vm_rows.append(
+                "<tr>"
+                f'<td class="mono">{h(node_name)}</td>'
+                f"<td>{_vm_cell(vms_before.get(node_name, []))}</td>"
+                "</tr>"
+            )
+
+        cs_note = (
             '<div style="padding:6px 16px 10px;font-size:11px;color:var(--muted)">'
-            'Bars show actual node RSS (Proxmox API). '
-            '<span style="color:var(--accent)">Blue cfg values</span> = '
-            'configured allocation — the basis the solver uses for load balancing and migration cost. '
-            + ('After-state projects by adding/removing configured VM sizes.'
-               if show_after else '')
-            + '</div>'
+            'Bars show actual node RSS. '
+            '<span style="color:var(--accent)">Blue cfg</span> = '
+            'configured allocation — the basis the solver uses for weighting.'
+            '</div>'
         )
-
-        load_section = (
+        state_before_section = (
             '<div class="section">'
-            f'<div class="section-title">📊 Node load{after_note}{gap_badge}'
+            f'<div class="section-title">📊 Ausgangslage'
+            f' <span class="badge b-muted">gap: {gap_b:.1f}%</span>'
             f'<span class="count">method: {h(cs_method)}</span></div>'
             '<div class="tbl-wrap"><table>'
-            f"{load_thead}"
-            f"<tbody>{''.join(load_rows)}</tbody>"
-            f"</table></div>"
-            f"{ram_note}"
+            '<thead><tr><th>Node</th><th>RAM (RSS)</th><th>CPU alloc</th></tr></thead>'
+            f"<tbody>{''.join(before_load_rows)}</tbody>"
+            '</table></div>'
+            f'{cs_note}'
             '<div class="sub-heading">VM distribution</div>'
             '<div class="tbl-wrap"><table>'
-            f"{vm_dist_thead}"
-            f"<tbody>{''.join(vm_dist_rows)}</tbody>"
-            "</table></div>"
-            "</div>"
+            '<thead><tr><th>Node</th><th>VMs</th></tr></thead>'
+            f"<tbody>{''.join(before_vm_rows)}</tbody>"
+            '</table></div>'
+            '</div>'
         )
-    else:
-        load_section = ""
+
+        # ── Section 2: Ergebnis (after, only when plan exists) ────────────────
+        if show_after:
+            after_load_rows: list[str] = []
+            after_vm_rows:   list[str] = []
+            for node_name in sorted(nodes_data):
+                m = node_metrics[node_name]
+                mc_a = "bar-fill-better" if m["md"] < -0.5 else ("bar-fill-worse" if m["md"] > 0.5 else "bar-fill-neutral")
+                cc_a = "bar-fill-better" if m["cd"] < -0.5 else ("bar-fill-worse" if m["cd"] > 0.5 else "bar-fill-neutral")
+                mem_b_label = f'{m["mem_b"]/GiB:.1f}&thinsp;GiB&ensp;{m["mp_b"]:.1f}%'
+                mem_a_label = f'{m["mem_a"]/GiB:.1f}&thinsp;GiB&ensp;{m["mp_a"]:.1f}%'
+                cpu_b_label = f'{m["cpu_b"]}&thinsp;/&thinsp;{m["cpu_tot"]}&ensp;{m["cp_b"]:.0f}%'
+                cpu_a_label = f'{m["cpu_a"]}&thinsp;/&thinsp;{m["cpu_tot"]}&ensp;{m["cp_a"]:.0f}%'
+                after_load_rows.append(
+                    "<tr>"
+                    f'<td class="mono">{h(node_name)}</td>'
+                    f'<td><div class="load-cell">{_bar(m["mp_b"], "bar-fill-neutral")}'
+                    f'<span class="mono">{mem_b_label}</span></div></td>'
+                    f'<td><div class="load-cell">{_bar(m["mp_a"], mc_a)}'
+                    f'<span class="mono">{mem_a_label}</span></div></td>'
+                    f'<td>{_delta_html(m["md"])}</td>'
+                    f'<td><div class="load-cell">{_bar(m["cp_b"], "bar-fill-neutral")}'
+                    f'<span class="mono">{cpu_b_label}</span></div></td>'
+                    f'<td><div class="load-cell">{_bar(m["cp_a"], cc_a)}'
+                    f'<span class="mono">{cpu_a_label}</span></div></td>'
+                    f'<td>{_delta_html(m["cd"])}</td>'
+                    "</tr>"
+                )
+                after_vm_rows.append(
+                    "<tr>"
+                    f'<td class="mono">{h(node_name)}</td>'
+                    f"<td>{_vm_cell(vms_before.get(node_name, []))}</td>"
+                    f'<td style="color:var(--muted);text-align:center">→</td>'
+                    f"<td>{_vm_cell(vms_after.get(node_name, []))}</td>"
+                    "</tr>"
+                )
+
+            gap_cls = "b-green" if gap_a < gap_b - 0.5 else ("b-orange" if gap_a > gap_b + 0.5 else "b-muted")
+            proj_badge = (
+                ' <span class="badge b-muted">projected</span>'
+                if not is_active else ""
+            )
+            after_note = (
+                '<div style="padding:6px 16px 10px;font-size:11px;color:var(--muted)">'
+                'After-state is projected by applying configured VM sizes to the plan.'
+                '</div>'
+            )
+            state_after_section = (
+                '<div class="section">'
+                f'<div class="section-title">📈 Ergebnis{proj_badge}'
+                f' <span class="badge b-muted">gap before: {gap_b:.1f}%</span>'
+                f' <span class="badge {gap_cls}">gap after: {gap_a:.1f}%</span>'
+                f'<span class="count">method: {h(cs_method)}</span></div>'
+                '<div class="tbl-wrap"><table>'
+                '<thead><tr>'
+                '<th>Node</th>'
+                '<th>RAM before</th><th>RAM after</th><th>Δ</th>'
+                '<th>CPU alloc before</th><th>CPU alloc after</th><th>Δ</th>'
+                '</tr></thead>'
+                f"<tbody>{''.join(after_load_rows)}</tbody>"
+                '</table></div>'
+                f'{after_note}'
+                '<div class="sub-heading">VM distribution</div>'
+                '<div class="tbl-wrap"><table>'
+                '<thead><tr><th>Node</th><th>before</th><th></th><th>after</th></tr></thead>'
+                f"<tbody>{''.join(after_vm_rows)}</tbody>"
+                '</table></div>'
+                '</div>'
+            )
 
     # ── Comparison ────────────────────────────────────────────────────────────
     _CMP = {
@@ -1182,9 +1180,10 @@ def _render_run(run: dict[str, Any], output_dir: Path) -> None:
         f"{header_cards}"
         f"{c_section}"
         f"{proxlb_plan_section}"
+        f"{state_before_section}"
         f"{plan_section}"
-        f"{load_section}"
         f"{active_exec_section}"
+        f"{state_after_section}"
         f"{cmp_section}"
         f"{err_section}"
         "</div>"
