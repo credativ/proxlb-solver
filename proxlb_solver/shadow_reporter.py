@@ -442,7 +442,7 @@ def _render_index(runs: list[dict[str, Any]], output_dir: Path) -> None:
         '<div class="tbl-wrap"><table>'
         "<thead><tr>"
         "<th>Timestamp</th><th>Status</th><th>Feasible</th>"
-        "<th>ProxLB</th><th>Solver</th><th>Load gap</th><th>Time&nbsp;(ms)</th>"
+        "<th>ProxLB</th><th>Solver</th><th>Spread</th><th>Time&nbsp;(ms)</th>"
         "<th>Constraints</th><th></th>"
         "</tr></thead>"
         f"<tbody>{tbody}</tbody>"
@@ -499,7 +499,7 @@ def _render_run(run: dict[str, Any], output_dir: Path) -> None:
             + _card("ProxLB mig.",    str(len(run["proxlb_actions"])))
             + _card("Solver mig.",    str(sr.get("migrations", 0)))
             + _card("Mig. cost",      f'{sr.get("migration_cost_gib", 0)}&thinsp;GiB')
-            + _card("Load gap",       f'{sr.get("gap", 0):.4f}')
+            + _card("Spread",          f'{sr.get("gap", 0):.4f}')
             + _card("Solver time",    f'{sr.get("wall_time_ms", 0):.0f} ms')
             + "</div>"
         )
@@ -686,7 +686,7 @@ def _render_run(run: dict[str, Any], output_dir: Path) -> None:
     else:
         plan_section = ""
 
-    # ── Cluster state: split into "before" (Ausgangslage) and "after" (Ergebnis)
+    # ── Cluster state: "Initial state" (before) and "Result" (after) ──────────
     cs = run.get("cluster_state")
     state_before_section = ""
     state_after_section  = ""
@@ -698,16 +698,19 @@ def _render_run(run: dict[str, Any], output_dir: Path) -> None:
 
         GiB = 1024 ** 3
 
-        # CPU allocation per node before migrations (sum of VM vCPUs)
+        # Configured allocation per node — this is what the solver optimises.
+        # Use this consistently for bars and gap; RSS appears only in VM details.
+        mem_cfg_before: dict = {n: 0 for n in nodes_data}
         cpu_alloc_before: dict = {n: 0 for n in nodes_data}
         for gd in guests_data.values():
             nd_name = gd.get("node")
-            if nd_name in cpu_alloc_before:
+            if nd_name in mem_cfg_before:
+                mem_cfg_before[nd_name] += int(gd.get("memory", 0))
                 cpu_alloc_before[nd_name] += int(gd.get("cpu", 0))
 
-        # Apply solver plan to project "after" state (configured memory units)
-        mem_after: dict = {n: nd.get("memory_used", 0) for n, nd in nodes_data.items()}
-        cpu_after: dict = dict(cpu_alloc_before)
+        # Project "after" state by applying plan migrations to configured values
+        mem_cfg_after: dict = dict(mem_cfg_before)
+        cpu_after: dict     = dict(cpu_alloc_before)
         for ps in plan_steps_ba:
             vm_name = ps.get("vm")
             src     = ps.get("source")
@@ -715,16 +718,16 @@ def _render_run(run: dict[str, Any], output_dir: Path) -> None:
             gd      = guests_data.get(vm_name, {})
             vm_mem  = int(gd.get("memory", 0))
             vm_cpu  = int(gd.get("cpu", 0))
-            if src in mem_after:
-                mem_after[src] = max(0, mem_after[src] - vm_mem)
-                cpu_after[src] = max(0, cpu_after[src] - vm_cpu)
+            if src in mem_cfg_after:
+                mem_cfg_after[src] = max(0, mem_cfg_after[src] - vm_mem)
+                cpu_after[src]     = max(0, cpu_after[src] - vm_cpu)
             if tgt:
-                mem_after[tgt] = mem_after.get(tgt, 0) + vm_mem
-                cpu_after[tgt] = cpu_after.get(tgt, 0) + vm_cpu
+                mem_cfg_after[tgt] = mem_cfg_after.get(tgt, 0) + vm_mem
+                cpu_after[tgt]     = cpu_after.get(tgt, 0) + vm_cpu
 
         show_after = bool(plan_steps_ba)
 
-        # VM distribution before and after
+        # VM distribution before and after (for VM dist sub-table)
         vms_before: dict = {n: [] for n in nodes_data}
         for vm_name, gd in sorted(guests_data.items()):
             nd_name = gd.get("node")
@@ -772,13 +775,13 @@ def _render_run(run: dict[str, Any], output_dir: Path) -> None:
                 if mem_used is not None:
                     rss_str = f'{mem_used/GiB:.2f}&thinsp;GiB RSS'
                     cfg_str = (
-                        f'<span title="Configured allocation — solver basis for load balancing and migration cost"'
+                        f'<span title="Configured allocation — solver basis"'
                         f' style="color:var(--accent)">{mem/GiB:.1f}&thinsp;GiB cfg</span>'
                     )
                     mem_str = f'{rss_str} &middot; {cfg_str}'
                 else:
                     mem_str = (
-                        f'<span title="Configured allocation — solver basis for load balancing and migration cost"'
+                        f'<span title="Configured allocation — solver basis"'
                         f' style="color:var(--accent)">{mem/GiB:.1f}&thinsp;GiB cfg</span>'
                         if mem else ""
                     )
@@ -790,7 +793,7 @@ def _render_run(run: dict[str, Any], output_dir: Path) -> None:
                 )
             return "<br>".join(parts)
 
-        # Compute per-node metrics (used by both sections)
+        # Per-node metrics using configured allocation throughout
         node_metrics: dict = {}
         mp_b_all: list[float] = []
         mp_a_all: list[float] = []
@@ -798,8 +801,8 @@ def _render_run(run: dict[str, Any], output_dir: Path) -> None:
             nd      = nodes_data[node_name]
             mem_tot = nd.get("memory_total", 1) or 1
             cpu_tot = nd.get("cpu_total", 1) or 1
-            mem_b   = nd.get("memory_used", 0)
-            mem_a   = mem_after.get(node_name, mem_b)
+            mem_b   = mem_cfg_before.get(node_name, 0)
+            mem_a   = mem_cfg_after.get(node_name, mem_b)
             cpu_b   = cpu_alloc_before.get(node_name, 0)
             cpu_a   = cpu_after.get(node_name, cpu_b)
             mp_b    = 100 * mem_b / mem_tot
@@ -819,17 +822,13 @@ def _render_run(run: dict[str, Any], output_dir: Path) -> None:
         gap_b = max(mp_b_all) - min(mp_b_all) if mp_b_all else 0
         gap_a = max(mp_a_all) - min(mp_a_all) if mp_a_all else 0
 
-        # ── Section 1: Ausgangslage (before) ──────────────────────────────────
+        # ── Section 1: Initial state ───────────────────────────────────────────
         before_load_rows: list[str] = []
         before_vm_rows:   list[str] = []
         for node_name in sorted(nodes_data):
             m = node_metrics[node_name]
-            mem_b_label = (
-                f'{m["mem_b"]/GiB:.1f}&thinsp;GiB&ensp;{m["mp_b"]:.1f}%'
-            )
-            cpu_b_label = (
-                f'{m["cpu_b"]}&thinsp;/&thinsp;{m["cpu_tot"]}&ensp;{m["cp_b"]:.0f}%'
-            )
+            mem_b_label = f'{m["mem_b"]/GiB:.1f}&thinsp;GiB&ensp;{m["mp_b"]:.1f}%'
+            cpu_b_label = f'{m["cpu_b"]}&thinsp;/&thinsp;{m["cpu_tot"]}&ensp;{m["cp_b"]:.0f}%'
             before_load_rows.append(
                 "<tr>"
                 f'<td class="mono">{h(node_name)}</td>'
@@ -848,18 +847,17 @@ def _render_run(run: dict[str, Any], output_dir: Path) -> None:
 
         cs_note = (
             '<div style="padding:6px 16px 10px;font-size:11px;color:var(--muted)">'
-            'Bars show actual node RSS. '
-            '<span style="color:var(--accent)">Blue cfg</span> = '
-            'configured allocation — the basis the solver uses for weighting.'
+            'Bars show configured allocation (solver basis). '
+            'VM details also include actual RSS where available.'
             '</div>'
         )
         state_before_section = (
             '<div class="section">'
-            f'<div class="section-title">📊 Ausgangslage'
-            f' <span class="badge b-muted">gap: {gap_b:.1f}%</span>'
+            f'<div class="section-title">📊 Initial state'
+            f' <span class="badge b-muted">spread: {gap_b:.1f}%</span>'
             f'<span class="count">method: {h(cs_method)}</span></div>'
             '<div class="tbl-wrap"><table>'
-            '<thead><tr><th>Node</th><th>RAM (RSS)</th><th>CPU alloc</th></tr></thead>'
+            '<thead><tr><th>Node</th><th>RAM (cfg alloc)</th><th>CPU alloc</th></tr></thead>'
             f"<tbody>{''.join(before_load_rows)}</tbody>"
             '</table></div>'
             f'{cs_note}'
@@ -871,7 +869,7 @@ def _render_run(run: dict[str, Any], output_dir: Path) -> None:
             '</div>'
         )
 
-        # ── Section 2: Ergebnis (after, only when plan exists) ────────────────
+        # ── Section 2: Result (after, only when plan exists) ──────────────────
         if show_after:
             after_load_rows: list[str] = []
             after_vm_rows:   list[str] = []
@@ -914,14 +912,15 @@ def _render_run(run: dict[str, Any], output_dir: Path) -> None:
             )
             after_note = (
                 '<div style="padding:6px 16px 10px;font-size:11px;color:var(--muted)">'
-                'After-state is projected by applying configured VM sizes to the plan.'
+                'After-state projected from configured VM sizes. '
+                'All values use configured allocation — consistent with solver basis.'
                 '</div>'
             )
             state_after_section = (
                 '<div class="section">'
-                f'<div class="section-title">📈 Ergebnis{proj_badge}'
-                f' <span class="badge b-muted">gap before: {gap_b:.1f}%</span>'
-                f' <span class="badge {gap_cls}">gap after: {gap_a:.1f}%</span>'
+                f'<div class="section-title">📈 Result{proj_badge}'
+                f' <span class="badge b-muted">spread before: {gap_b:.1f}%</span>'
+                f' <span class="badge {gap_cls}">spread after: {gap_a:.1f}%</span>'
                 f'<span class="count">method: {h(cs_method)}</span></div>'
                 '<div class="tbl-wrap"><table>'
                 '<thead><tr>'
