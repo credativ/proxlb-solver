@@ -159,6 +159,7 @@ class SolverStats:
     load_gap: float    # The calculated gap (Max node load - Min node load)
     migration_count: int
     wall_time_ms: float
+    migration_cost_gib: int = 0  # Weighted migration cost: RAM GiB + 4×local-disk GiB
 
 
 @dataclass(frozen=True)

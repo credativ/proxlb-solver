@@ -496,10 +496,11 @@ def _render_run(run: dict[str, Any], output_dir: Path) -> None:
             f'<div class="card"><div class="label">Feasibility</div>'
             f'<div style="margin-top:6px">{feas_html}</div></div>'
             + mode_card
-            + _card("ProxLB mig.",  str(len(run["proxlb_actions"])))
-            + _card("Solver mig.",  str(sr.get("migrations", 0)))
-            + _card("Load gap",     f'{sr.get("gap", 0):.4f}')
-            + _card("Solver time",  f'{sr.get("wall_time_ms", 0):.0f} ms')
+            + _card("ProxLB mig.",    str(len(run["proxlb_actions"])))
+            + _card("Solver mig.",    str(sr.get("migrations", 0)))
+            + _card("Mig. cost",      f'{sr.get("migration_cost_gib", 0)}&thinsp;GiB')
+            + _card("Load gap",       f'{sr.get("gap", 0):.4f}')
+            + _card("Solver time",    f'{sr.get("wall_time_ms", 0):.0f} ms')
             + "</div>"
         )
     else:

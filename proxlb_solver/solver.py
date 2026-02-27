@@ -254,20 +254,35 @@ def solve(cluster: Cluster, time_limit_s: float = 30.0, forbidden_placements: li
             model.add_max_equality(mx, load_vars), model.add_min_equality(mn, load_vars), model.add(load_gap == mx - mn)
         else: model.add(load_gap == 0)
 
+    # ── Migration cost ──────────────────────────────────────────────────────
+    # Real cost of a live migration is driven by memory bandwidth (dirty-page
+    # copy over the network).  CPU state is a few MB — negligible.
+    # Local disk requires a full sequential copy — penalised heavily.
+    # Unit: GiB transferred.  Minimum 1 GiB per VM to keep the weight non-zero.
+    _GiB = 1024 ** 3
+    _LOCAL_DISK_FACTOR = 4   # local disk copy ≈ 4× slower/costlier than RAM
     mig_count_list = []
+    mig_cost_terms = []
     for i, vm in enumerate(vms):
         if vm.name not in set(cons.ignore):
             m_var = model.new_bool_var(f"mvar_{vm.name}")
-            model.add(m_var == 1 - x[i][node_idx[vm.node]]), mig_count_list.append(m_var)
+            model.add(m_var == 1 - x[i][node_idx[vm.node]])
+            mig_count_list.append(m_var)
+            ram_gib  = max(1, vm.memory // _GiB)
+            disk_gib = sum(vm.disks.values()) // _GiB if vm.disks else 0
+            mig_cost_terms.append((ram_gib + _LOCAL_DISK_FACTOR * disk_gib) * m_var)
     migration_count = model.new_int_var(0, len(vms), "m_cnt")
     if mig_count_list: model.add(migration_count == sum(mig_count_list))
     else: model.add(migration_count == 0)
+    migration_cost = model.new_int_var(0, len(vms) * 2048, "m_cost")
+    if mig_cost_terms: model.add(migration_cost == sum(mig_cost_terms))
+    else: model.add(migration_cost == 0)
 
     penalty_total = model.new_int_var(0, 100 * _SOFT_PENALTY, "penalty_total")
     if soft_penalties: model.add(penalty_total == sum(soft_penalties) * _SOFT_PENALTY)
     else: model.add(penalty_total == 0)
 
-    model.minimize(eff_wb * load_gap + eff_ws * migration_count + penalty_total)
+    model.minimize(eff_wb * load_gap + eff_ws * migration_cost + penalty_total)
     
     solver = cp_model.CpSolver()
     solver.parameters.max_time_in_seconds = time_limit_s
@@ -278,7 +293,8 @@ def solve(cluster: Cluster, time_limit_s: float = 30.0, forbidden_placements: li
         return Solution(False, {}, [], SolverStats(solver.status_name(status), 0, 0.0, 0, wall_ms), _find_blocking_vms(cluster, time_limit_s) if cluster.evacuate_node else [])
     placements = {v.name: nodes[j].name for i, v in enumerate(vms) for j in range(len(nodes)) if solver.value(x[i][j])}
     migrations = [Migration(v.name, v.node, placements[v.name]) for v in vms if placements[v.name] != v.node]
-    return Solution(True, placements, migrations, SolverStats(solver.status_name(status), solver.objective_value, solver.value(load_gap) / _LOAD_SCALE, len(migrations), wall_ms))
+    cost_gib   = solver.value(migration_cost) if mig_cost_terms else 0
+    return Solution(True, placements, migrations, SolverStats(solver.status_name(status), solver.objective_value, solver.value(load_gap) / _LOAD_SCALE, len(migrations), wall_ms, cost_gib))
 
 
 def solve_reachable(cluster: Cluster, total_time_limit_s: float = 60.0, max_retries: int = 10, quiet: bool = True) -> tuple[Solution, MigrationPlan]:

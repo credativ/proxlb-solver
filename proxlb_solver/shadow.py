@@ -168,6 +168,7 @@ def _shadow_inner(
             "mode": solver_cfg.get("mode", "shadow"),
             "status": solution.stats.status,
             "migrations": solution.stats.migration_count,
+            "migration_cost_gib": solution.stats.migration_cost_gib,
             "gap": round(solution.stats.load_gap, 6),
             "wall_time_ms": round(solution.stats.wall_time_ms, 1),
             "feasible": solution.feasible,
