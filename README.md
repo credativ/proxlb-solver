@@ -64,15 +64,27 @@ The **4× local disk factor** reflects that copying a local disk (LVM/ZFS) is si
 
 ProxLB supports multiple optimization dimensions via the `method` parameter:
 
-| Method | Logic | Use Case |
+| Method | Balance objective | Use Case |
 | :--- | :--- | :--- |
-| `memory` | Configured RAM allocation | Classic memory-based balancing. |
-| `cpu` | CPU load (average) | Throughput optimization. |
-| `cpu_psi` | CPU stall (wait time) | Latency optimization (PVE 9+). |
-| `cpu_smart` | Usage + PSI (hybrid) | Balance of throughput and responsiveness. |
-| `global_smart` | RAM + CPU + IO | **Holistic cluster-wide optimization**. |
+| `memory` | Configured RAM allocation | Classic memory-based balancing (default). |
+| `cpu` | Actual CPU load (measured cores) | Throughput optimization. |
+| `cpu_psi` | CPU stall time (PSI) | Latency optimization (PVE 9+). |
+| `cpu_smart` | Actual CPU load + PSI (hybrid) | Balance of throughput and responsiveness. |
+| `global_smart` | RAM alloc + actual CPU load + IO | **Holistic cluster-wide optimization**. |
 
-> **Note on configured vs. actual:** The solver balances by *configured* allocation (RAM size set in the VM config), not actual RSS. This is correct for capacity planning — a VM configured with 4 GiB must be placed on a node that has 4 GiB available, regardless of whether it currently uses only 200 MiB. The HTML report shows both values for transparency.
+### RAM: configured allocation vs. actual RSS
+
+The solver balances RAM by *configured* allocation, not actual RSS. This is correct for capacity planning — a VM configured with 4 GiB must be placed on a node that has 4 GiB reserved, regardless of whether it currently uses only 200 MiB. The HTML report shows both values for transparency.
+
+### CPU: two separate roles
+
+CPU data enters the solver in two distinct ways:
+
+1. **Hard capacity constraint** (always active, all methods): uses *configured vCPUs* to enforce the overcommit limit. No node may host more vCPUs than `cpu_total × cpu_overcommit`.
+
+2. **Balance objective** (only with `cpu`, `cpu_smart`, `global_smart`): uses the *actual measured CPU load* (`cpu_used` from the Proxmox API, a float in cores). A VM with 8 vCPUs that is idle (0.05 cores) contributes almost nothing to the node's load score; a VM with 2 vCPUs consuming 3.5 cores contributes heavily.
+
+With the default `method: memory`, CPU load is **not considered** for balancing — only the overcommit constraint applies. Use `cpu_smart` or `global_smart` if you want the solver to move VMs based on actual CPU pressure.
 
 ### The PSI Footprint Model (CPU, RAM, IO)
 [PSI (Pressure Stall Information)](https://www.kernel.org/doc/html/latest/accounting/psi.html) measures resource contention. Since PSI is an *intensive* metric (it doesn't sum up like RAM), the solver uses an **additive footprint model**:
