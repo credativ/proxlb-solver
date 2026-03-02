@@ -269,6 +269,9 @@ def _write_cluster_state(proxlb_data: dict, solver_cfg: dict, f: IO) -> None:
         # Actual balloon/RSS usage, if ProxLB collected it from the PVE agent
         if gd.get("memory_used") is not None:
             entry["memory_used"] = gd["memory_used"]
+        # Actual CPU load in cores (float), if available
+        if gd.get("cpu_used") is not None:
+            entry["cpu_usage"] = gd["cpu_used"]
         guests[name] = entry
 
     _write(f, {

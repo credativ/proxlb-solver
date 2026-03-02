@@ -211,6 +211,7 @@ tbody tr:hover td { background: rgba(255,255,255,.03); }
 .bar-fill-neutral  { background: var(--muted); }
 .bar-fill-better   { background: var(--green); }
 .bar-fill-worse    { background: var(--orange); }
+.bar-fill-load     { background: var(--purple); }
 """
 
 
@@ -708,6 +709,15 @@ def _render_run(run: dict[str, Any], output_dir: Path) -> None:
                 mem_cfg_before[nd_name] += int(gd.get("memory", 0))
                 cpu_alloc_before[nd_name] += int(gd.get("cpu", 0))
 
+        # Actual CPU load per node — optional, requires cpu_usage in guest data
+        has_cpu_usage = any("cpu_usage" in gd for gd in guests_data.values())
+        cpu_load_before: dict = {n: 0.0 for n in nodes_data}
+        if has_cpu_usage:
+            for gd in guests_data.values():
+                nd_name = gd.get("node")
+                if nd_name in cpu_load_before and gd.get("cpu_usage") is not None:
+                    cpu_load_before[nd_name] += float(gd["cpu_usage"])
+
         # Project "after" state by applying plan migrations to configured values
         mem_cfg_after: dict = dict(mem_cfg_before)
         cpu_after: dict     = dict(cpu_alloc_before)
@@ -724,6 +734,19 @@ def _render_run(run: dict[str, Any], output_dir: Path) -> None:
             if tgt:
                 mem_cfg_after[tgt] = mem_cfg_after.get(tgt, 0) + vm_mem
                 cpu_after[tgt]     = cpu_after.get(tgt, 0) + vm_cpu
+
+        cpu_load_after: dict = dict(cpu_load_before)
+        if has_cpu_usage:
+            for ps in plan_steps_ba:
+                vm_name = ps.get("vm")
+                src     = ps.get("source")
+                tgt     = ps.get("target")
+                gd      = guests_data.get(vm_name, {})
+                vm_load = float(gd.get("cpu_usage", 0.0))
+                if src in cpu_load_after:
+                    cpu_load_after[src] = max(0.0, cpu_load_after[src] - vm_load)
+                if tgt:
+                    cpu_load_after[tgt] = cpu_load_after.get(tgt, 0.0) + vm_load
 
         show_after = bool(plan_steps_ba)
 
@@ -764,6 +787,33 @@ def _render_run(run: dict[str, Any], output_dir: Path) -> None:
             if d > 0.5:
                 return f'<span style="color:var(--orange)">&#9650;&thinsp;{d:.1f}%</span>'
             return '<span style="color:var(--muted)">—</span>'
+
+        def _cpu_cell(alloc_pct: float, vcpus: int, cpu_tot_n: int,
+                      bar_cls: str = "bar-fill-neutral", load_pct=None) -> str:
+            """CPU bar cell: single alloc bar, or dual bar when load_pct given."""
+            alloc_label = f'{vcpus}&thinsp;/&thinsp;{cpu_tot_n}&ensp;{alloc_pct:.0f}%'
+            if load_pct is not None:
+                load_cores = load_pct * cpu_tot_n / 100.0
+                return (
+                    '<div class="load-cell">'
+                    '<div style="display:flex;flex-direction:column;gap:2px;flex:1;min-width:80px">'
+                    f'<div class="bar-track" title="vCPU alloc {alloc_pct:.0f}%">'
+                    f'<div class="bar-fill {bar_cls}" style="width:{min(100.0, alloc_pct):.1f}%"></div>'
+                    '</div>'
+                    f'<div class="bar-track" title="Actual CPU load {load_pct:.1f}%">'
+                    f'<div class="bar-fill bar-fill-load" style="width:{min(100.0, load_pct):.1f}%"></div>'
+                    '</div>'
+                    '</div>'
+                    f'<span class="mono" style="font-size:11px;white-space:nowrap">'
+                    f'{alloc_label}'
+                    f'<br><span style="color:var(--purple)">{load_cores:.2f}&thinsp;cores&ensp;{load_pct:.1f}%</span>'
+                    '</span>'
+                    '</div>'
+                )
+            return (
+                f'<div class="load-cell">{_bar(alloc_pct, bar_cls)}'
+                f'<span class="mono">{alloc_label}</span></div>'
+            )
 
         def _vm_cell(vm_list: list) -> str:
             if not vm_list:
@@ -809,6 +859,8 @@ def _render_run(run: dict[str, Any], output_dir: Path) -> None:
             mp_a    = 100 * mem_a / mem_tot
             cp_b    = 100 * cpu_b / cpu_tot
             cp_a    = 100 * cpu_a / cpu_tot
+            clp_b   = 100.0 * cpu_load_before.get(node_name, 0.0) / cpu_tot if has_cpu_usage else None
+            clp_a   = 100.0 * cpu_load_after.get(node_name, 0.0) / cpu_tot if has_cpu_usage else None
             mp_b_all.append(mp_b)
             mp_a_all.append(mp_a)
             node_metrics[node_name] = dict(
@@ -817,6 +869,7 @@ def _render_run(run: dict[str, Any], output_dir: Path) -> None:
                 cpu_b=cpu_b, cpu_a=cpu_a,
                 mp_b=mp_b, mp_a=mp_a, cp_b=cp_b, cp_a=cp_a,
                 md=mp_a - mp_b, cd=cp_a - cp_b,
+                clp_b=clp_b, clp_a=clp_a,
             )
 
         gap_b = max(mp_b_all) - min(mp_b_all) if mp_b_all else 0
@@ -828,14 +881,12 @@ def _render_run(run: dict[str, Any], output_dir: Path) -> None:
         for node_name in sorted(nodes_data):
             m = node_metrics[node_name]
             mem_b_label = f'{m["mem_b"]/GiB:.1f}&thinsp;GiB&ensp;{m["mp_b"]:.1f}%'
-            cpu_b_label = f'{m["cpu_b"]}&thinsp;/&thinsp;{m["cpu_tot"]}&ensp;{m["cp_b"]:.0f}%'
             before_load_rows.append(
                 "<tr>"
                 f'<td class="mono">{h(node_name)}</td>'
                 f'<td><div class="load-cell">{_bar(m["mp_b"], "bar-fill-neutral")}'
                 f'<span class="mono">{mem_b_label}</span></div></td>'
-                f'<td><div class="load-cell">{_bar(m["cp_b"], "bar-fill-neutral")}'
-                f'<span class="mono">{cpu_b_label}</span></div></td>'
+                f'<td>{_cpu_cell(m["cp_b"], m["cpu_b"], m["cpu_tot"], load_pct=m["clp_b"])}</td>'
                 "</tr>"
             )
             before_vm_rows.append(
@@ -845,19 +896,25 @@ def _render_run(run: dict[str, Any], output_dir: Path) -> None:
                 "</tr>"
             )
 
+        _cpu_load_note = (
+            ' CPU: gray&nbsp;=&nbsp;vCPU&nbsp;alloc, '
+            '<span style="color:var(--purple)">purple&nbsp;=&nbsp;actual&nbsp;load</span>.'
+            if has_cpu_usage else ''
+        )
         cs_note = (
             '<div style="padding:6px 16px 10px;font-size:11px;color:var(--muted)">'
-            'Bars show configured allocation (solver basis). '
-            'VM details also include actual RSS where available.'
+            f'Bars show configured allocation (solver basis). '
+            f'VM details also include actual RSS where available.{_cpu_load_note}'
             '</div>'
         )
+        before_cpu_th = '<th>CPU alloc / actual load</th>' if has_cpu_usage else '<th>CPU alloc</th>'
         state_before_section = (
             '<div class="section">'
             f'<div class="section-title">📊 Initial state'
             f' <span class="badge b-muted">spread: {gap_b:.1f}%</span>'
             f'<span class="count">method: {h(cs_method)}</span></div>'
             '<div class="tbl-wrap"><table>'
-            '<thead><tr><th>Node</th><th>RAM (cfg alloc)</th><th>CPU alloc</th></tr></thead>'
+            f'<thead><tr><th>Node</th><th>RAM (cfg alloc)</th>{before_cpu_th}</tr></thead>'
             f"<tbody>{''.join(before_load_rows)}</tbody>"
             '</table></div>'
             f'{cs_note}'
@@ -879,8 +936,6 @@ def _render_run(run: dict[str, Any], output_dir: Path) -> None:
                 cc_a = "bar-fill-better" if m["cd"] < -0.5 else ("bar-fill-worse" if m["cd"] > 0.5 else "bar-fill-neutral")
                 mem_b_label = f'{m["mem_b"]/GiB:.1f}&thinsp;GiB&ensp;{m["mp_b"]:.1f}%'
                 mem_a_label = f'{m["mem_a"]/GiB:.1f}&thinsp;GiB&ensp;{m["mp_a"]:.1f}%'
-                cpu_b_label = f'{m["cpu_b"]}&thinsp;/&thinsp;{m["cpu_tot"]}&ensp;{m["cp_b"]:.0f}%'
-                cpu_a_label = f'{m["cpu_a"]}&thinsp;/&thinsp;{m["cpu_tot"]}&ensp;{m["cp_a"]:.0f}%'
                 after_load_rows.append(
                     "<tr>"
                     f'<td class="mono">{h(node_name)}</td>'
@@ -889,10 +944,8 @@ def _render_run(run: dict[str, Any], output_dir: Path) -> None:
                     f'<td><div class="load-cell">{_bar(m["mp_a"], mc_a)}'
                     f'<span class="mono">{mem_a_label}</span></div></td>'
                     f'<td>{_delta_html(m["md"])}</td>'
-                    f'<td><div class="load-cell">{_bar(m["cp_b"], "bar-fill-neutral")}'
-                    f'<span class="mono">{cpu_b_label}</span></div></td>'
-                    f'<td><div class="load-cell">{_bar(m["cp_a"], cc_a)}'
-                    f'<span class="mono">{cpu_a_label}</span></div></td>'
+                    f'<td>{_cpu_cell(m["cp_b"], m["cpu_b"], m["cpu_tot"], load_pct=m["clp_b"])}</td>'
+                    f'<td>{_cpu_cell(m["cp_a"], m["cpu_a"], m["cpu_tot"], bar_cls=cc_a, load_pct=m["clp_a"])}</td>'
                     f'<td>{_delta_html(m["cd"])}</td>'
                     "</tr>"
                 )
@@ -905,6 +958,11 @@ def _render_run(run: dict[str, Any], output_dir: Path) -> None:
                     "</tr>"
                 )
 
+            after_cpu_heads = (
+                '<th>CPU before (alloc/load)</th><th>CPU after (alloc/load)</th>'
+                if has_cpu_usage else
+                '<th>CPU alloc before</th><th>CPU alloc after</th>'
+            )
             gap_cls = "b-green" if gap_a < gap_b - 0.5 else ("b-orange" if gap_a > gap_b + 0.5 else "b-muted")
             proj_badge = (
                 ' <span class="badge b-muted">projected</span>'
@@ -926,7 +984,7 @@ def _render_run(run: dict[str, Any], output_dir: Path) -> None:
                 '<thead><tr>'
                 '<th>Node</th>'
                 '<th>RAM before</th><th>RAM after</th><th>Δ</th>'
-                '<th>CPU alloc before</th><th>CPU alloc after</th><th>Δ</th>'
+                f'{after_cpu_heads}<th>Δ</th>'
                 '</tr></thead>'
                 f"<tbody>{''.join(after_load_rows)}</tbody>"
                 '</table></div>'
