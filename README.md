@@ -177,6 +177,18 @@ make install
 make test
 ```
 
+### Generating Reports
+Integration results and shadow-mode comparisons can be visualized as interactive reports:
+```bash
+make report
+```
+This produces the following artifacts in the project root:
+- `results.html`: Full interactive report with sidebar, Mermaid dependency graphs, and per-run detail pages.
+- `results.md`: A concise Markdown summary of all processed runs.
+- `results.xml`: JUnit-compatible XML for CI/CD integration.
+
+Individual run logs are stored as `.jsonl` files in the configured `log_dir` (e.g., `/tmp/proxlb-solver-logs`).
+
 ### Internal Architecture
 - **`models.py`**: Strict type definitions for the cluster state.
 - **`adapter.py`**: Bridge between ProxLB's runtime data and the solver models.
