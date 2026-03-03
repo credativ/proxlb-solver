@@ -171,6 +171,7 @@ def from_proxlb_data(
             cpu_pressure=_get_guest_val("cpu_pressure_some_percent", default=_get_guest_val("cpu", "pressure_some_percent")),
             memory_pressure=_get_guest_val("memory_pressure_some_percent", default=_get_guest_val("memory", "pressure_some_percent")),
             io_pressure=_get_guest_val("disk_pressure_some_percent", default=_get_guest_val("disk", "pressure_some_percent")),
+            disks={"local": int(_get_guest_val("disk_used", default=_get_guest_val("disk", "used")))},
             priority=int(_get_guest_val("priority", default=2)),
             vm_type=_get_guest_val("type", default="vm")
         ))
