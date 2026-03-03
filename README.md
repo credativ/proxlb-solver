@@ -34,6 +34,12 @@ For every guest $i$ (VM or Container) and node $j$, a binary variable $x_{i,j}$ 
 
 Every guest must be assigned to exactly one node: $\sum_{j} x_{i,j} = 1$.
 
+### Integer Arithmetic & Scaling
+CP-SAT is an integer-only solver. To handle fractional values (like 0.5 CPU cores or 12.5% PSI), the solver internally scales all metrics by a factor of **10,000** (`_LOAD_SCALE`).
+*   100% load is represented as 10,000.
+*   0.5% PSI is represented as 50.
+*   This scaling explains the large objective values seen in technical solver logs.
+
 ### Objective Function
 The solver minimizes a weighted cost function:
 $$\text{Minimize: } (w_\text{balance} \cdot \text{Spread}) + (w_\text{stickiness} \cdot \text{MigrationCost}) + \text{Penalty}_\text{SoftRules}$$
@@ -56,7 +62,7 @@ The **4× local disk factor** reflects that copying a local disk (LVM/ZFS) is si
 
 ---
 
-## 3. Resource Metrics & strategy Modes
+## 3. Resource Metrics & Strategy Modes
 
 ProxLB supports multiple optimization dimensions via the `method` parameter:
 
@@ -88,8 +94,9 @@ Optimization is fine-tuned via three distinct tiers:
 1.  **Global Level (`w_global_*`)**: Importance of resource pools (e.g., "RAM balance is 10x more important than IO").
 2.  **Resource Level (`w_*_usage` vs `w_*_psi`)**: Weighting raw utilization against dynamic pressure stalls.
 3.  **Guest Level (`priority`)**:
-    *   **Priority 3 (High)**: Contribution counts 3× towards the spread calculation.
-    *   **Priority 1 (Low)**: Test/Dev environments.
+    *   **Priority 3 (High)**: Footprint counts 3× towards the spread calculation.
+    *   **Priority 1 (Low)**: Footprint counts 1×.
+    *   *Effect*: High-priority guests "force" their way onto nodes with the most free resources by artificially inflating their perceived load during the optimization phase.
 
 ---
 
@@ -115,13 +122,14 @@ The solver distinguishes between rules based on their `origin`:
 
 ---
 
-## 6. Reachability Guarantee
+## 6. Reachability Guarantee & Migration Planning
 
 An optimal state is worthless if it cannot be executed (e.g., no buffer space for a swap).
-1. The **Planner** verifies every solution for an executable migration path.
-2. It detects dependencies (Guest-A must move before Guest-B can fit).
-3. It detects cycles (A → B → A) and breaks them using **temp-moves** to spare nodes.
-4. If a cycle is unbreakable, the solver searches for the next-best reachable solution.
+
+1.  **Planner Verification**: Every solver solution is passed to the Planner to find an executable sequence of moves.
+2.  **Dependency Resolution**: Detects chains where Guest-A must move before Guest-B can fit.
+3.  **Cycle Breaking (Temp-Moves)**: Detects circular dependencies (A → B, B → A). If a third node exists with sufficient free capacity, the Planner adds a **temp-move** (parking) to break the cycle.
+4.  **No-Good Feedback**: If a cycle is unbreakable (cluster too full for parking), the solution is marked as "No-Good" and the Solver is triggered again to find the next-best reachable state.
 
 ---
 
@@ -142,15 +150,15 @@ The solver takes over execution. ProxLB's `Balancing()` class is still used for 
 The ProxLB Solver is tuned for **Stability over Agility** by default.
 
 #### 1. Operational Safety
-*   **`max_node_inflow` (Default: 1)**: Only one guest at a time can migrate *into* a host.
-*   **`max_parallel_migrations` (Default: 2)**: Limits simultaneous migrations cluster-wide.
+*   **`max_node_inflow` (Default: 1)**: Only one guest at a time can migrate *into* a host. This prevents memory or CPU peaks that could trigger OOM on the target host.
+*   **`max_parallel_migrations` (Default: 2)**: Limits simultaneous migrations cluster-wide. 
 *   **`balanciness` (Default: 3 — Moderate)**:
     *   Level 1–2: Only moves guests for maintenance or hard rule violations.
     *   Level 3: Rebalances only if the spread exceeds ~15%.
     *   Level 5: Chases perfect balance.
 
 #### 2. Resource Balancing Strategy
-*   **`method` (Default: `memory`)**: RAM is usually the hardest bottleneck.
+*   **`method` (Default: `memory`)**: RAM is usually the hardest bottleneck. Start with memory balancing before exploring CPU or Smart modes.
 *   **`cpu_overcommit` (Default: 2.0)**: Allows assigning more vCPUs than physical cores exist.
 
 ---
