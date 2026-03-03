@@ -1,6 +1,9 @@
 # ProxLB CP-SAT Solver
 
-The ProxLB Solver is a mathematically exact scheduler for Proxmox VE clusters. It uses Google's **OR-Tools CP-SAT** to find the provably global optimum for VM and Container placement, moving beyond simple greedy heuristics.
+![Tests & Report](https://github.com/credativ/proxlb-algorithmus/actions/workflows/test-and-pages.yml/badge.svg)
+
+The ProxLB Solver is a mathematically exact scheduler for Proxmox VE clusters.
+ It uses Google's **OR-Tools CP-SAT** to find the provably global optimum for VM and Container placement, moving beyond simple greedy heuristics.
 
 ## Algorithmic Overview
 
