@@ -1,7 +1,7 @@
 name: "Global Smart — Resource Conflict"
 description: >
   Node-A has spare RAM but is CPU-starved. Node-B has spare CPU but is RAM-starved.
-  A 'balanced' VM is moved to the node that offers the better weighted 
+  A 'balanced' VM is moved to the node that offers the better weighted
   compromise. In this case, we weight CPU higher than RAM.
 
 balancing:

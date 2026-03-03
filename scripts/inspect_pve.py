@@ -60,7 +60,7 @@ def inspect_pve_storage():
                 name = vm.get('name', 'unknown')
                 print(f"VM {vmid} ({name}):")
                 config = proxmox.nodes(sample_node).qemu(vmid).config.get()
-                
+
                 # Search for disk keys (ideX, scsiX, virtioX, sataX)
                 disk_pattern = re.compile(r'^(?:ide|scsi|virtio|sata)\d+$')
                 found_disks = False

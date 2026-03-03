@@ -110,10 +110,15 @@ def _initial_load_gap_single(cluster: Cluster, resource_type: str, use_psi: bool
 
 
 def _initial_load_gap(cluster: Cluster) -> float:
-    """Computes the overall initial load gap based on the balancing method."""
+    """
+    Computes the overall initial load gap based on the selected balancing method.
+    Used to decide if the cluster is already 'balanced enough' according to
+    the balanciness profile.
+    """
     bal = cluster.balancing
     method = bal.method
 
+    # Handle multi-resource 'smart' modes
     if method == "global_smart":
         m_gap = _initial_load_gap_single(cluster, "memory")
         c_gap = _initial_load_gap_single(cluster, "cpu")
@@ -128,50 +133,55 @@ def _initial_load_gap(cluster: Cluster) -> float:
         w_u, w_p = (bal.w_cpu_usage, bal.w_cpu_psi) if res == "cpu" else (bal.w_mem_usage, bal.w_mem_psi) if res == "memory" else (bal.w_io_usage, bal.w_io_psi)
         return (w_u * u_gap + w_p * p_gap) / (w_u + w_p) if (w_u + w_p) else u_gap
 
+    # Standard single-resource modes
     use_psi = method.endswith("_psi") or bal.mode == "psi"
     res = method.split("_")[0] if "_" in method else method
     return _initial_load_gap_single(cluster, res, use_psi=use_psi)
 
 
 def _resolve_balancing(bal: Balancing, current_gap: float, cluster: Cluster) -> tuple[int, int]:
-    """Resolves weights and checks rebalancing thresholds."""
+    """
+    Translates user-facing configuration (Balanciness, Thresholds) into
+    optimizer weights.
+
+    If thresholds are not reached or the gap is too small, rebalancing
+    is suppressed (weight_balance = 0).
+    """
     level = max(1, min(5, bal.balanciness))
     prof_wb, prof_ws, gap_threshold = _BALANCINESS_PROFILES[level]
 
     weight_balance = bal.w_balance if bal.w_balance is not None else prof_wb
     weight_stickiness = bal.w_stickiness if bal.w_stickiness is not None else prof_ws
 
-    # 1. Gap Check (DRS-style)
+    # 1. Gap Check: Is rebalancing worth the effort?
     if current_gap < gap_threshold:
         weight_balance = 0
 
-    # 2. Utilization Threshold Check
+    # 2. Absolute Utilization Threshold Check:
+    # Only rebalance if at least one node exceeds the configured threshold.
     any_threshold_exceeded = False
     active_thresholds = False
 
-    thresholds = [
+    threshold_mapping = [
         ("cpu", bal.cpu_threshold),
         ("memory", bal.memory_threshold),
         ("disk", bal.disk_threshold)
     ]
 
-    for res_type, limit in thresholds:
+    for res_type, limit in threshold_mapping:
         if limit is None: continue
         active_thresholds = True
         for node in cluster.nodes:
             if node.maintenance: continue
-            # Note: Threshold check always uses raw values (no priority weighting)
-            # to match ProxLB's standard behavior.
+
+            # Threshold check always uses raw values (no priority inflation)
             vms_on_node = [vm for vm in cluster.vms if vm.node == node.name]
             if res_type == "cpu":
-                usage = sum(vm.cpu_usage for vm in vms_on_node)
-                cap = node.cpu_total
+                usage, cap = sum(vm.cpu_usage for vm in vms_on_node), node.cpu_total
             elif res_type == "memory":
-                usage = sum(vm.memory for vm in vms_on_node)
-                cap = node.memory_total
-            else:
-                usage = sum(sum(vm.disks.values()) for vm in vms_on_node)
-                cap = sum(node.storage_free.values()) or 1
+                usage, cap = sum(vm.memory for vm in vms_on_node), node.memory_total
+            else: # disk
+                usage, cap = sum(sum(vm.disks.values()) for vm in vms_on_node), sum(node.storage_free.values()) or 1
 
             if cap > 0 and (usage / cap) * 100 > limit:
                 any_threshold_exceeded = True; break
@@ -184,7 +194,11 @@ def _resolve_balancing(bal: Balancing, current_gap: float, cluster: Cluster) -> 
 
 
 def _find_blocking_vms(cluster: Cluster, time_limit_s: float) -> list[str]:
-    """Identify VMs that prevent evacuation of the target node."""
+    """
+    Small diagnostic solver: If a node evacuation fails, this function
+    tries to move each VM on that node individually. If a single VM cannot
+    be moved even when all others are ignored, it's a hard blocker (pinning).
+    """
     evac_node = cluster.evacuate_node
     if not evac_node: return []
     nodes, vms, cons = cluster.nodes, cluster.vms, cluster.constraints
@@ -211,29 +225,41 @@ def _find_blocking_vms(cluster: Cluster, time_limit_s: float) -> list[str]:
 
 
 def solve(cluster: Cluster, time_limit_s: float = 30.0, forbidden_placements: list[dict[str, str]] | None = None) -> Solution:
-    """Solve VM placement using CP-SAT."""
-    try: validate_and_merge_constraints(cluster)
-    except RuleConflictError as e: return Solution(False, {}, [], SolverStats(f"RULE_CONFLICT: {str(e)}", 0, 0.0, 0, 0))
+    """
+    The Core Solver. Translates the cluster into a CP-SAT model and finds
+    the mathematically optimal guest placement.
+    """
+    # 1. Validate and prep constraints first
+    try:
+        validate_and_merge_constraints(cluster)
+    except RuleConflictError as e:
+        return Solution(False, {}, [], SolverStats(f"RULE_CONFLICT: {str(e)}", 0, 0.0, 0, 0))
 
     model = cp_model.CpModel()
     nodes, vms, bal, cons = cluster.nodes, cluster.vms, cluster.balancing, cluster.constraints
 
+    # 2. Determine balancing strategy and weights
     current_gap = _initial_load_gap(cluster)
     eff_wb, eff_ws = _resolve_balancing(bal, current_gap, cluster)
 
     node_idx = {n.name: i for i, n in enumerate(nodes)}
     vm_idx = {v.name: i for i, v in enumerate(vms)}
+
+    # 3. Decision Variables: x[i][j] is 1 if Guest i is placed on Node j
     x = [[model.new_bool_var(f"x_{v.name}_{n.name}") for n in nodes] for v in vms]
 
-    # ── Constraints ──
+    # 4. Handle forbidden combinations (Feedback from Reachability Planner)
     if forbidden_placements:
         for forbidden in forbidden_placements:
             literals = [x[vm_idx[v]][node_idx[n]] for v, n in forbidden.items() if v in vm_idx and n in node_idx]
             if literals: model.add(sum(literals) <= len(literals) - 1)
 
+    # 5. Core Placement Rules
     for i in range(len(vms)): model.add(sum(x[i][j] for j in range(len(nodes))) == 1)
+
     for j, node in enumerate(nodes):
         if node.maintenance:
+            # Maintenance nodes are forbidden
             for i in range(len(vms)): model.add(x[i][j] == 0)
 
     if cluster.evacuate_node:
@@ -242,22 +268,25 @@ def solve(cluster: Cluster, time_limit_s: float = 30.0, forbidden_placements: li
             for i in range(len(vms)): model.add(x[i][evj] == 0)
 
     for i, vm in enumerate(vms):
-        if vm.name in cons.ignore: model.add(x[i][node_idx[vm.node]] == 1)
+        if vm.name in cons.ignore:
+            # Ignored guests must stay on their source node
+            model.add(x[i][node_idx[vm.node]] == 1)
 
+    # 6. Resource Capacity Constraints
     for j, node in enumerate(nodes):
-        # RAM capacity
+        # Memory limit (Bytes scaled to MiB)
         model.add(sum((vms[i].memory // _MB) * x[i][j] for i in range(len(vms))) <= (node.memory_total - node.memory_reserve) // _MB)
-        # CPU capacity (Overcommit)
+        # CPU limit (considering Overcommit)
         usable_cpu = max(0, node.cpu_total - node.cpu_reserve)
         model.add(sum(vms[i].cpu * 1000 * x[i][j] for i in range(len(vms))) <= usable_cpu * int(bal.cpu_overcommit * 1000))
 
-    # Storage Capacity
+    # Storage Capacity per pool
     all_storages = {s for v in vms for s in v.disks.keys()}
     for sn in all_storages:
         for j, node in enumerate(nodes):
             model.add(sum((vms[i].disks.get(sn, 0) // _MB) * x[i][j] for i in range(len(vms))) <= max(0, (node.storage_free.get(sn, 0) - node.storage_reserve.get(sn, 0)) // _MB))
 
-    # Affinity / Anti-Affinity
+    # 7. Affinity / Anti-Affinity (Hard & Soft)
     soft_penalties = []
     for rule in cons.anti_affinity:
         indices = [vm_idx[n] for n in rule["vms"] if n in vm_idx]
@@ -285,16 +314,18 @@ def solve(cluster: Cluster, time_limit_s: float = 30.0, forbidden_placements: li
                     soft_penalties.append(violated)
 
     for rule in cons.pin:
+        # Node Pinning
         vi = vm_idx.get(rule["vm"])
         if vi is not None:
             allowed = {node_idx[n] for n in rule["nodes"] if n in node_idx}
             for j in range(len(nodes)):
                 if j not in allowed: model.add(x[vi][j] == 0)
 
-    # ── Objective ──
+    # 8. Optimization Objective (Gap Minimization)
     max_load_val = _LOAD_SCALE * 15
 
     def add_resource_gap(resource_type, use_psi=False):
+        """Helper to create balanced-load variables."""
         node_loads = []
         for j, node in enumerate(nodes):
             if node.maintenance: continue
@@ -347,7 +378,7 @@ def solve(cluster: Cluster, time_limit_s: float = 30.0, forbidden_placements: li
         use_psi = method.endswith("_psi") or bal.mode == "psi"
         load_gap = add_resource_gap(res, use_psi=use_psi)
 
-    # ── Migration Cost ──
+    # 9. Migration Cost (Stickiness)
     _GiB, _COST_UNIT, _LOCAL_DISK_FACTOR = 1024 ** 3, 256 * 1024 * 1024, 4
     mig_count_list, mig_cost_terms = [], []
     for i, vm in enumerate(vms):
@@ -362,14 +393,15 @@ def solve(cluster: Cluster, time_limit_s: float = 30.0, forbidden_placements: li
     if mig_cost_terms: model.add(migration_cost == sum(mig_cost_terms))
     else: model.add(migration_cost == 0)
 
+    # 10. Penalties for constraint violations
     penalty_total = model.new_int_var(0, 100 * _SOFT_PENALTY, "penalty_total")
     if soft_penalties: model.add(penalty_total == sum(soft_penalties) * _SOFT_PENALTY)
     else: model.add(penalty_total == 0)
 
-    # FINAL OPTIMIZATION TARGET:
-    # Minimize: (Improvement * BalanceWeight) + (Migrations * StickinessWeight) + ConstraintPenalties
+    # 11. Final Minimization Target
     model.minimize(eff_wb * load_gap + eff_ws * migration_cost + penalty_total)
 
+    # 12. Execution
     solver = cp_model.CpSolver()
     solver.parameters.max_time_in_seconds = time_limit_s
     t0 = time.monotonic(); status = solver.solve(model); wall_ms = (time.monotonic() - t0) * 1000
@@ -386,18 +418,29 @@ def solve(cluster: Cluster, time_limit_s: float = 30.0, forbidden_placements: li
 
 
 def solve_reachable(cluster: Cluster, total_time_limit_s: float = 60.0, max_retries: int = 10, quiet: bool = True) -> tuple[Solution, MigrationPlan]:
+    """
+    Ensures that the found solution is reachable via a safe sequence
+    of migrations (no deadlocks).
+    """
     forbidden, last_sol, last_plan, start = [], None, None, time.monotonic()
     for attempt in range(max_retries + 1):
         rem = total_time_limit_s - (time.monotonic() - start)
         if rem <= 0: break
+
+        # 1. Try to find an optimal distribution
         sol = solve(cluster, time_limit_s=max(1.0, rem), forbidden_placements=forbidden)
         if not sol.feasible:
             if last_sol: return dataclasses.replace(last_sol, path_feasible=False, reachability_attempts=attempt + 1), last_plan
             return sol, plan_migrations(cluster, sol)
+
+        # 2. Check if there is an executable path
         plan = plan_migrations(cluster, sol); last_sol, last_plan = sol, plan
         if plan.path_feasible: return dataclasses.replace(sol, reachability_attempts=attempt + 1), plan
+
+        # 3. Handle cycles: Forbid this placement and re-solve
         if not plan.unbreakable_cycle: break
         forbidden.append({vm: sol.placements[vm] for vm in plan.unbreakable_cycle if vm in sol.placements})
         if not quiet: logger.info(f"  [solve_reachable] Attempt {attempt+1}: Cycle {plan.unbreakable_cycle}. Retrying...")
+
     if last_sol: return dataclasses.replace(last_sol, path_feasible=False, reachability_attempts=attempt + 1), last_plan
     return sol, plan_migrations(cluster, sol)

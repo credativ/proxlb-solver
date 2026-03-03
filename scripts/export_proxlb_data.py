@@ -37,7 +37,7 @@ def export_data(config_path, output_path):
 
     print(f"Connecting to Proxmox API...")
     proxmox_api = ProxmoxApi(proxlb_config)
-    
+
     print("Gathering Cluster Data...")
     nodes = Nodes.get_nodes(proxmox_api, proxlb_config)
     meta = Features.validate_any_non_pve9_node(proxlb_config, nodes)
@@ -54,7 +54,7 @@ def export_data(config_path, output_path):
         ha_rules=ha_rules,
         groups=groups,
     )
-    
+
     with open(output_path, 'w') as f:
         # Pydantic v2 support
         if hasattr(proxlb_data, "model_dump_json"):
