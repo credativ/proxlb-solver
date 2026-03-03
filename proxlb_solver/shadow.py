@@ -245,33 +245,51 @@ def _write_cluster_state(proxlb_data: dict, solver_cfg: dict, f: IO) -> None:
     the reporter can compute the projected load after applying the solver plan.
     """
     meta         = proxlb_data.get("meta", {})
-    balancing    = meta.get("balancing", {})
-    method       = solver_cfg.get("method") or balancing.get("method", "memory")
+    # Handle new Pydantic-based meta structure
+    balancing_cfg = meta.get("balancing", {}) if isinstance(meta, dict) else getattr(meta, "balancing", {})
+    if isinstance(balancing_cfg, dict):
+        method = solver_cfg.get("method") or balancing_cfg.get("method", "memory")
+    else:
+        method = solver_cfg.get("method") or getattr(balancing_cfg, "method", "memory")
 
     nodes: dict = {}
     for name, nd in proxlb_data.get("nodes", {}).items():
-        mem_used  = nd.get("memory_used", 0)
-        mem_free  = nd.get("memory_free", 0)
-        raw_total = (mem_used + mem_free) if (mem_used + mem_free) > 0 else nd.get("memory_total", 0)
+        def _nd_val(key, subkey=None, default=0):
+            val = nd.get(key)
+            if subkey and isinstance(val, dict):
+                return val.get(subkey, default)
+            return val if val is not None else default
+
+        mem_used  = _nd_val("memory_used", default=_nd_val("memory", "used"))
+        mem_free  = _nd_val("memory_free", default=_nd_val("memory", "free"))
+        raw_total = (mem_used + mem_free) if (mem_used + mem_free) > 0 else _nd_val("memory_total", default=_nd_val("memory", "total"))
         nodes[name] = {
-            "cpu_total":    nd.get("cpu_total", 0),
+            "cpu_total":    _nd_val("cpu_total", default=_nd_val("cpu", "total")),
             "memory_total": raw_total,
             "memory_used":  mem_used,
         }
 
     guests: dict = {}
     for name, gd in proxlb_data.get("guests", {}).items():
+        def _gd_val(key, subkey=None, default=0):
+            val = gd.get(key)
+            if subkey and isinstance(val, dict):
+                return val.get(subkey, default)
+            return val if val is not None else default
+
         entry: dict = {
-            "node":   gd.get("node_current"),
-            "memory": gd.get("memory_total", 0),
-            "cpu":    gd.get("cpu_total", 1),
+            "node":   _gd_val("node_current", default=gd.get("node_current")),
+            "memory": _gd_val("memory_total", default=_gd_val("memory", "total")),
+            "cpu":    _gd_val("cpu_total", default=_gd_val("cpu", "total", default=1)),
         }
-        # Actual balloon/RSS usage, if ProxLB collected it from the PVE agent
-        if gd.get("memory_used") is not None:
-            entry["memory_used"] = gd["memory_used"]
-        # Actual CPU load in cores (float), if available
-        if gd.get("cpu_used") is not None:
-            entry["cpu_usage"] = gd["cpu_used"]
+        # Actual balloon/RSS usage
+        mem_used = _gd_val("memory_used", default=_gd_val("memory", "used"))
+        if mem_used > 0:
+            entry["memory_used"] = mem_used
+        # Actual CPU load
+        cpu_used = _gd_val("cpu_used", default=_gd_val("cpu", "used"))
+        if cpu_used > 0:
+            entry["cpu_usage"] = cpu_used
         guests[name] = entry
 
     _write(f, {

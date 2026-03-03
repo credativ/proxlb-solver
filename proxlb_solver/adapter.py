@@ -54,47 +54,57 @@ def from_proxlb_data(
     use_reservations: bool = True,
     pin_vms: set | None = None,
 ) -> Cluster:
-    """Convert a proxlb_data dict into a Cluster ready for the solver.
-
-    Args:
-        proxlb_data:      The merged dict built by ProxLB's main loop.
-        use_reservations: If True (default), node_resource_reserve entries
-                          from the balancing config are applied as explicit
-                          Node.memory_reserve values.  Set to False to let
-                          the solver treat the full hardware RAM as available.
-        pin_vms:          Optional set of VM names to force-pin to their
-                          current node.  Used by the active-mode feedback loop
-                          after a failed migration so that the VM is not
-                          re-attempted in the next solve.
-    """
     meta = proxlb_data.get("meta", {})
+    
     balancing_cfg = meta.get("balancing", {})
-    reserve_cfg = balancing_cfg.get("node_resource_reserve", {})
+    
+    if isinstance(balancing_cfg, dict):
+        reserve_cfg = balancing_cfg.get("node_resource_reserve") or {}
+    else:
+        # Pydantic model access
+        reserve_cfg = getattr(balancing_cfg, "node_resource_reserve", None) or {}
 
     # 1. Map Balancing Configuration
-    balancing = Balancing(
-        method=balancing_cfg.get("method", "memory"),
-        balanciness=balancing_cfg.get("balanciness", 3),
-        cpu_overcommit=balancing_cfg.get("cpu_overcommit", 2.0),
-        max_node_inflow=balancing_cfg.get("max_node_inflow", 1),
-        max_parallel_migrations=balancing_cfg.get("max_parallel_migrations")
-    )
+    if isinstance(balancing_cfg, dict):
+        balancing = Balancing(
+            method=balancing_cfg.get("method", "memory"),
+            balanciness=balancing_cfg.get("balanciness", 3),
+            cpu_overcommit=balancing_cfg.get("cpu_overcommit", 2.0),
+            max_node_inflow=balancing_cfg.get("max_node_inflow", 1),
+            max_parallel_migrations=balancing_cfg.get("max_parallel_migrations")
+        )
+    else:
+        # Pydantic model access
+        balancing = Balancing(
+            method=getattr(balancing_cfg, "method", "memory"),
+            balanciness=getattr(balancing_cfg, "balanciness", 3),
+            cpu_overcommit=getattr(balancing_cfg, "cpu_overcommit", 2.0),
+            max_node_inflow=getattr(balancing_cfg, "max_node_inflow", 1),
+            max_parallel_migrations=getattr(balancing_cfg, "max_parallel_migrations", None)
+        )
 
     # 2. Map Nodes
     nodes = []
     for name, nd in proxlb_data.get("nodes", {}).items():
-        storage_free = {"local": nd.get("disk_free", 0)}
+        # Unified access for dict or model-dumped dict
+        def _nd_val(key, subkey=None, default=0):
+            val = nd.get(key)
+            if subkey and isinstance(val, dict):
+                return val.get(subkey, default)
+            return val if val is not None else default
+
+        storage_free = {"local": _nd_val("disk_free", default=_nd_val("disk", "free"))}
 
         # Reconstruct the raw hardware total from the PVE API fields that
         # ProxLB stores untouched.  memory_total is already reservation-reduced
         # and cannot be used here.
-        mem_used = nd.get("memory_used", 0)
-        mem_free = nd.get("memory_free", 0)
+        mem_used = int(_nd_val("memory_used", default=_nd_val("memory", "used")))
+        mem_free = int(_nd_val("memory_free", default=_nd_val("memory", "free")))
         raw_memory = mem_used + mem_free
 
         if raw_memory > 0:
             # We have the raw value — apply reservation explicitly.
-            memory_reserve = (
+            memory_reserve = int(
                 _get_memory_reserve_bytes(name, reserve_cfg)
                 if use_reservations else 0
             )
@@ -103,19 +113,19 @@ def from_proxlb_data(
         else:
             # Fallback for synthetic/test data that only provides memory_total.
             # memory_total is already reduced; we cannot separate the reserve.
-            raw_memory = nd.get("memory_total", 0)
+            raw_memory = int(_nd_val("memory_total", default=_nd_val("memory", "total")))
             memory_reserve = 0
 
         nodes.append(Node(
             name=name,
-            cpu_total=nd.get("cpu_total", 0),
+            cpu_total=int(_nd_val("cpu_total", default=_nd_val("cpu", "total"))),
             memory_total=raw_memory,
             memory_reserve=memory_reserve,
             storage_free=storage_free,
-            cpu_pressure=nd.get("cpu_pressure_some_percent", 0.0),
-            memory_pressure=nd.get("memory_pressure_some_percent", 0.0),
-            io_pressure=nd.get("disk_pressure_some_percent", 0.0),
-            maintenance=nd.get("maintenance", False)
+            cpu_pressure=_nd_val("cpu_pressure_some_percent", default=_nd_val("cpu", "pressure_some_percent")),
+            memory_pressure=_nd_val("memory_pressure_some_percent", default=_nd_val("memory", "pressure_some_percent")),
+            io_pressure=_nd_val("disk_pressure_some_percent", default=_nd_val("disk", "pressure_some_percent")),
+            maintenance=_nd_val("maintenance", default=False)
         ))
 
     # 3. Map Guests (VMs/Containers) and extract implicit constraints
@@ -126,29 +136,40 @@ def from_proxlb_data(
     ignore_list = []
 
     for name, gd in proxlb_data.get("guests", {}).items():
+        def _gd_val(key, subkey=None, default=0):
+            val = gd.get(key)
+            if subkey and isinstance(val, dict):
+                return val.get(subkey, default)
+            return val if val is not None else default
+
         vms.append(VM(
             name=name,
-            node=gd.get("node_current"),
-            cpu=gd.get("cpu_total", 1),
-            memory=gd.get("memory_total", 0),
-            cpu_usage=gd.get("cpu_used", 0.0),
-            cpu_pressure=gd.get("cpu_pressure_some_percent", 0.0),
-            memory_pressure=gd.get("memory_pressure_some_percent", 0.0),
-            io_pressure=gd.get("disk_pressure_some_percent", 0.0),
+            node=_gd_val("node_current", default=gd.get("node_current")),
+            cpu=int(_gd_val("cpu_total", default=_gd_val("cpu", "total", default=1))),
+            memory=int(_gd_val("memory_total", default=_gd_val("memory", "total"))),
+            cpu_usage=_gd_val("cpu_used", default=_gd_val("cpu", "used")),
+            cpu_pressure=_gd_val("cpu_pressure_some_percent", default=_gd_val("cpu", "pressure_some_percent")),
+            memory_pressure=_gd_val("memory_pressure_some_percent", default=_gd_val("memory", "pressure_some_percent")),
+            io_pressure=_gd_val("disk_pressure_some_percent", default=_gd_val("disk", "pressure_some_percent")),
             disks={},  # Specific disk pools are skipped in simulation for now
-            priority=gd.get("priority", 2),
-            vm_type=gd.get("type", "vm")
+            priority=int(_gd_val("priority", default=2)),
+            vm_type=_gd_val("type", default="vm")
         ))
 
         # PVE Native HA Rules — affinity and anti-affinity groups
         for rule in gd.get("ha_rules", []):
-            rule_id = rule["rule"]
-            rule_type = rule.get("type", "")
+            # Support both dict and Pydantic model (via dict access if dumped)
+            if isinstance(rule, dict):
+                rule_id = rule["rule"]
+                rule_type = rule.get("type", "")
+            else:
+                rule_id = getattr(rule, "rule")
+                rule_type = getattr(rule, "type", "")
+
             if rule_type == "affinity":
                 affinity_map[(rule_id, "pve")].append(name)
             elif rule_type == "anti-affinity":
                 anti_affinity_map[(rule_id, "pve")].append(name)
-            # Unknown types are ignored (not silently mis-classified)
 
         # ProxLB Tags — affinity / anti-affinity by tag prefix
         for tag in gd.get("tags", []):
@@ -159,17 +180,24 @@ def from_proxlb_data(
 
         # ProxLB Pools — affinity / anti-affinity by pool config
         for pool in gd.get("pools", []):
-            pool_cfg = balancing_cfg.get("pools", {}).get(pool)
+            if isinstance(reserve_cfg, dict):
+                pool_cfg = balancing_cfg.get("pools", {}).get(pool)
+            else:
+                pool_cfg = getattr(balancing_cfg, "pools", {}).get(pool)
+
             if pool_cfg:
-                if pool_cfg.get("type") == "affinity":
+                # Support both dict and Pydantic model
+                if isinstance(pool_cfg, dict):
+                    p_type = pool_cfg.get("type")
+                else:
+                    p_type = getattr(pool_cfg, "type", None)
+
+                if p_type == "affinity":
                     affinity_map[(pool, "plb")].append(name)
-                elif pool_cfg.get("type") == "anti-affinity":
+                elif p_type == "anti-affinity":
                     anti_affinity_map[(pool, "plb")].append(name)
 
         # Node pins — re-derived from raw sources to preserve origin metadata.
-        # The validated node list comes from ProxLB's pre-computed
-        # node_relationships (invalid/missing nodes already filtered).
-        # We reconstruct which source contributed each pin for logging.
         if gd.get("node_relationships"):
             pin_origins: list[dict] = []
 
@@ -178,13 +206,31 @@ def from_proxlb_data(
                     pin_origins.append({"origin": "tag", "source": tag})
 
             for pool in gd.get("pools", []):
-                pool_cfg = balancing_cfg.get("pools", {}).get(pool, {})
-                if pool_cfg.get("pin"):
+                if isinstance(reserve_cfg, dict):
+                    pool_cfg = balancing_cfg.get("pools", {}).get(pool, {})
+                else:
+                    pool_cfg = getattr(balancing_cfg, "pools", {}).get(pool, {})
+
+                if isinstance(pool_cfg, dict):
+                    has_pin = pool_cfg.get("pin")
+                else:
+                    has_pin = getattr(pool_cfg, "pin", None)
+
+                if has_pin:
                     pin_origins.append({"origin": "pool", "source": pool})
 
             for rule in gd.get("ha_rules", []):
-                if rule.get("type") == "affinity" and rule.get("nodes"):
-                    pin_origins.append({"origin": "pve", "source": rule["rule"]})
+                if isinstance(rule, dict):
+                    r_type = rule.get("type")
+                    r_nodes = rule.get("nodes")
+                    r_rule = rule["rule"]
+                else:
+                    r_type = getattr(rule, "type")
+                    r_nodes = getattr(rule, "nodes")
+                    r_rule = getattr(rule, "rule")
+
+                if r_type == "affinity" and r_nodes:
+                    pin_origins.append({"origin": "pve", "source": r_rule})
 
             pin_rules.append({
                 "vm": name,
@@ -192,12 +238,11 @@ def from_proxlb_data(
                 "origins": pin_origins,
             })
 
-        # Active-mode feedback: pin VMs whose migrations failed to their
-        # current node so the re-solve cannot attempt to move them again.
+        # Active-mode feedback: pin VMs whose migrations failed
         if pin_vms and name in pin_vms:
             pin_rules.append({
                 "vm": name,
-                "nodes": [gd.get("node_current", "")],
+                "nodes": [_gd_val("node_current", default=gd.get("node_current"))],
                 "origins": [{"origin": "solver", "source": "migration_failed"}],
             })
 
