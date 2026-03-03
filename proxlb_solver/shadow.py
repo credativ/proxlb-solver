@@ -446,9 +446,9 @@ def _verify_step(proxmox_api: Any, step_migrations: dict) -> dict:
     except Exception:
         # API failure — treat every guest as unverified (None → counted as failed).
         return {vm: None for vm in step_migrations}
-    
-    # Map name to node for all guests. 
-    # If 'type' is present, we filter for vm/ct. 
+
+    # Map name to node for all guests.
+    # If 'type' is present, we filter for vm/ct.
     # If 'type' is absent, we include it anyway (compatibility with mocks/older API).
     actual_nodes = {}
     for r in resources:
@@ -458,7 +458,7 @@ def _verify_step(proxmox_api: Any, step_migrations: dict) -> dict:
         if name and node:
             if g_type is None or g_type in ("vm", "ct", "qemu", "lxc"):
                 actual_nodes[name] = node
-                
+
     return {vm: actual_nodes.get(vm) for vm in step_migrations}
 
 

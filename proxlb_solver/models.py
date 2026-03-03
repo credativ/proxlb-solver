@@ -1,12 +1,12 @@
 """
 Data models for the ProxLB CP-SAT solver.
 
-This module defines the objects used to represent the cluster state, 
-user constraints, and the resulting migration plans. 
+This module defines the objects used to represent the cluster state,
+user constraints, and the resulting migration plans.
 
 Units used throughout the project:
 - Memory: Bytes (int)
-- Storage: Bytes (int) 
+- Storage: Bytes (int)
 - CPU Load: Float (0.0 to N.0, where 1.0 is 100% of one core)
 - PSI Pressure: Float (0.0 to 100.0, representing percentage of stall time)
 """
@@ -21,20 +21,20 @@ class Node:
     name: str
     cpu_total: int        # Number of physical CPU cores
     memory_total: int     # Total RAM in bytes
-    
+
     # Storage capacities: Maps storage name (e.g. 'local-lvm') to free bytes
     storage_free: dict[str, int] = field(default_factory=dict)
-    
+
     # Host Reservations: Resources set aside for the hypervisor/OS
     cpu_reserve: int = 0
     memory_reserve: int = 0
     storage_reserve: dict[str, int] = field(default_factory=dict)
-    
+
     # Real-time metrics (Pressure Stall Information)
     cpu_pressure: float = 0.0
     memory_pressure: float = 0.0
     io_pressure: float = 0.0
-    
+
     maintenance: bool = False # If True, no VMs can reside here
 
 
@@ -45,27 +45,27 @@ class VM:
     node: str             # Current host name
     cpu: int              # Configured vCPUs (cores)
     memory: int           # Configured RAM in bytes
-    
+
     # Actual resource footprints
     cpu_usage: float = 0.0    # Actual CPU load (e.g. 0.5 = 50% of one core)
     cpu_pressure: float = 0.0 # CPU stall time percentage
     memory_pressure: float = 0.0
     io_pressure: float = 0.0
-    
+
     # Storage requirements: Maps storage name to required bytes
     disks: dict[str, int] = field(default_factory=dict)
-    
+
     # Priority: Used to weight the importance of this VM during balancing
     # 1 = Low, 2 = Normal (default), 3 = High
     priority: int = 2
-    
+
     vm_type: str = "vm"   # "vm" or "ct"
 
 
 @dataclass(frozen=True)
 class Constraints:
     """Container for placement rules.
-    
+
     Rules (affinity, anti_affinity) are dictionaries with:
     - name: str
     - vms: list[str]
@@ -85,7 +85,13 @@ class Balancing:
     mode: str = "used"          # Balancing mode: "used", "assigned", or "psi"
     balanciness: int = 3        # 1-5 level. 3 (Moderate) avoids excessive 'ping-pong' moves.
     cpu_overcommit: float = 2.0 # Standard industry default for safe overbooking.
-    
+
+    # Thresholds: No migrations are triggered unless at least one node
+    # exceeds these utilization percentages (0-100).
+    memory_threshold: float | None = None
+    cpu_threshold: float | None = None
+    disk_threshold: float | None = None
+
     # Optional weight overrides (usually derived from balanciness)
     w_balance: int | None = None
     w_stickiness: int | None = None
@@ -98,17 +104,17 @@ class Balancing:
     w_mem_psi: int = 2
     w_io_usage: int = 1
     w_io_psi: int = 2
-    
+
     # Global resource weights (Relative importance of resource pools)
-    # Memory is prioritized (10) as exhaustion is fatal (OOM). 
+    # Memory is prioritized (10) as exhaustion is fatal (OOM).
     # CPU is secondary (5), and IO is weighted lowest (1) as it's often pool-limited.
     w_global_mem: int = 10
     w_global_cpu: int = 5
     w_global_io: int = 1
-    
+
     # Operational Safety Limits
     # max_parallel_migrations: Limits concurrent network/storage load during moves.
-    max_parallel_migrations: int | None = 2 
+    max_parallel_migrations: int | None = 2
     # max_node_inflow: Prevents transient RAM/CPU peaks by allowing only one entry per host.
     max_node_inflow: int = 1
 

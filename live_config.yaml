@@ -1,0 +1,17 @@
+proxmox_api:
+  hosts: ['pve.snow-crash.eu']
+  user: root@pam
+  token_id: proxlb2
+  token_secret: a599b0ea-5a7c-4522-8fe8-dd91c0643739
+  ssl_verification: False
+  timeout: 10
+
+proxmox_cluster:
+  maintenance_nodes: []
+  ignore_nodes: []
+
+balancing:
+  enable: True
+  method: memory
+  balanciness: 5
+  balance_types: ['vm', 'ct']

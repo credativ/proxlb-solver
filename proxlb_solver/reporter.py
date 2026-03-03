@@ -43,25 +43,25 @@ def _compute_load_gap(cluster: Cluster, placements: Dict[str, str]) -> float:
     method = cluster.balancing.method
     bal = cluster.balancing
     vm_map = {v.name: v for v in cluster.vms}
-    
+
     if method == "global_smart":
         m_gap = (_compute_single_gap(cluster, placements, "memory") * bal.w_mem_usage +
                  _compute_single_gap(cluster, placements, "memory_psi") * bal.w_mem_psi) / (bal.w_mem_usage + bal.w_mem_psi)
-        c_gap = (_compute_single_gap(cluster, placements, "cpu") * bal.w_cpu_usage + 
+        c_gap = (_compute_single_gap(cluster, placements, "cpu") * bal.w_cpu_usage +
                  _compute_single_gap(cluster, placements, "cpu_psi") * bal.w_cpu_psi) / (bal.w_cpu_usage + bal.w_cpu_psi)
-        i_gap = (_compute_single_gap(cluster, placements, "io_usage") * bal.w_io_usage + 
+        i_gap = (_compute_single_gap(cluster, placements, "io_usage") * bal.w_io_usage +
                  _compute_single_gap(cluster, placements, "io_psi") * bal.w_io_psi) / (bal.w_io_usage + bal.w_io_psi)
         total_w = bal.w_global_mem + bal.w_global_cpu + bal.w_global_io
         return (bal.w_global_mem * m_gap + bal.w_global_cpu * c_gap + bal.w_global_io * i_gap) / total_w if total_w else m_gap
 
     if method == "cpu_smart":
-        return (_compute_single_gap(cluster, placements, "cpu") * bal.w_cpu_usage + 
+        return (_compute_single_gap(cluster, placements, "cpu") * bal.w_cpu_usage +
                 _compute_single_gap(cluster, placements, "cpu_psi") * bal.w_cpu_psi) / (bal.w_cpu_usage + bal.w_cpu_psi)
     if method == "memory_smart":
-        return (_compute_single_gap(cluster, placements, "memory") * bal.w_mem_usage + 
+        return (_compute_single_gap(cluster, placements, "memory") * bal.w_mem_usage +
                 _compute_single_gap(cluster, placements, "memory_psi") * bal.w_mem_psi) / (bal.w_mem_usage + bal.w_mem_psi)
     if method == "io_smart":
-        return (_compute_single_gap(cluster, placements, "io_usage") * bal.w_io_usage + 
+        return (_compute_single_gap(cluster, placements, "io_usage") * bal.w_io_usage +
                 _compute_single_gap(cluster, placements, "io_psi") * bal.w_io_psi) / (bal.w_io_usage + bal.w_io_psi)
 
     # Base methods
@@ -120,10 +120,10 @@ def print_report(cluster: Cluster, solution: Solution):
     from rich.console import Console
     from rich.table import Table
     console = Console()
-    
+
     console.print(f"\n[bold]{cluster.name}[/bold]")
     console.print(f"  {cluster.description}\n")
-    
+
     if not solution.feasible:
         console.print(f"[red]INFEASIBLE[/red] — {solution.stats.status}")
         if solution.blocking_vms:
@@ -143,17 +143,17 @@ def print_report(cluster: Cluster, solution: Solution):
     table.add_column("Before Load")
     table.add_column("")
     table.add_column("After Load")
-    
+
     method = cluster.balancing.method
     vm_map = {v.name: v for v in cluster.vms}
     initial_placements = {v.name: v.node for v in cluster.vms}
-    
+
     for node in cluster.nodes:
         if node.maintenance: continue
-        
+
         def get_load_str(placements):
             # Show the primary metric for the chosen method
-            if method == "cpu": 
+            if method == "cpu":
                 u = sum(vm_map[v].cpu_usage for v, n in placements.items() if n == node.name)
                 return f"{u:.1f}/{node.cpu_total} cores"
             if method == "memory":
