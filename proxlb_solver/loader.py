@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from collections import defaultdict
 
 import yaml
 
@@ -75,6 +76,10 @@ def load_scenario(path: str | Path) -> Cluster:
         ))
 
     vms = []
+    tag_affinity = defaultdict(list)
+    tag_anti_affinity = defaultdict(list)
+    tag_pin = []
+    
     for name, vd in data.get("vms", {}).items():
         disks = {
             sname: _gb_to_bytes(sval)
@@ -93,6 +98,16 @@ def load_scenario(path: str | Path) -> Cluster:
             priority=vd.get("priority", 2),
             vm_type=vd.get("type", "vm"),
         ))
+        
+        # Parse tags for implicit constraints
+        for tag in vd.get("tags", []):
+            if tag.startswith("plb_affinity_"):
+                tag_affinity[tag].append(name)
+            elif tag.startswith("plb_anti_affinity_"):
+                tag_anti_affinity[tag].append(name)
+            elif tag.startswith("plb_pin_"):
+                target_node = tag[len("plb_pin_"):]
+                tag_pin.append({"vm": name, "nodes": [target_node], "origins": [{"origin": "tag", "source": tag}]})
 
     cd = data.get("constraints", {})
     ignore_raw = cd.get("ignore", [])
@@ -103,10 +118,22 @@ def load_scenario(path: str | Path) -> Cluster:
         else:
             ignore_list.append(entry)
 
+    affinity = [{**r, "hard": r.get("hard", True), "origin": r.get("origin", "plb")} for r in cd.get("affinity", [])]
+    for tag, t_vms in tag_affinity.items():
+        if len(t_vms) > 1:
+            affinity.append({"name": tag, "vms": t_vms, "hard": True, "origin": "plb"})
+
+    anti_affinity = [{**r, "hard": r.get("hard", True), "origin": r.get("origin", "plb")} for r in cd.get("anti_affinity", [])]
+    for tag, t_vms in tag_anti_affinity.items():
+        if len(t_vms) > 1:
+            anti_affinity.append({"name": tag, "vms": t_vms, "hard": True, "origin": "plb"})
+
+    pin = cd.get("pin", []) + tag_pin
+
     constraints = Constraints(
-        affinity=[{**r, "hard": r.get("hard", True), "origin": r.get("origin", "plb")} for r in cd.get("affinity", [])],
-        anti_affinity=[{**r, "hard": r.get("hard", True), "origin": r.get("origin", "plb")} for r in cd.get("anti_affinity", [])],
-        pin=cd.get("pin", []),
+        affinity=affinity,
+        anti_affinity=anti_affinity,
+        pin=pin,
         ignore=ignore_list,
     )
 
