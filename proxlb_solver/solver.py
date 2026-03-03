@@ -199,6 +199,7 @@ def solve(cluster: Cluster, time_limit_s: float = 30.0, forbidden_placements: li
 
     # ── Objective ──
     method = bal.method
+    mode = bal.mode
     max_load_val = _LOAD_SCALE * 15
     load_vars = []
     
@@ -206,14 +207,28 @@ def solve(cluster: Cluster, time_limit_s: float = 30.0, forbidden_placements: li
         u_vars, p_vars = [], []
         for j, node in enumerate(nodes):
             if node.maintenance: continue
-            if m_type == "cpu": cap, used = max(1, node.cpu_total - node.cpu_reserve), sum(int(vms[i].cpu_usage * vms[i].priority * _LOAD_SCALE) * x[i][j] for i in range(len(vms)))
-            elif m_type == "memory": cap, used = max(1, (node.memory_total - node.memory_reserve) // _MB), sum((vms[i].memory * vms[i].priority // _MB) * _LOAD_SCALE * x[i][j] for i in range(len(vms)))
-            else: cap, used = max(1, sum(node.storage_free.values()) // _MB), sum((sum(vms[i].disks.values()) * vms[i].priority // _MB) * _LOAD_SCALE * x[i][j] for i in range(len(vms)))
+            
+            # Determine capacity and used values based on mode and method
+            if m_type == "cpu":
+                cap = max(1, node.cpu_total - node.cpu_reserve)
+                if mode == "assigned":
+                    used = sum(vms[i].cpu * vms[i].priority * _LOAD_SCALE * x[i][j] for i in range(len(vms)))
+                else:
+                    used = sum(int(vms[i].cpu_usage * vms[i].priority * _LOAD_SCALE) * x[i][j] for i in range(len(vms)))
+            elif m_type == "memory":
+                cap = max(1, (node.memory_total - node.memory_reserve) // _MB)
+                used = sum((vms[i].memory * vms[i].priority // _MB) * _LOAD_SCALE * x[i][j] for i in range(len(vms)))
+            else: # disk
+                cap = max(1, sum(node.storage_free.values()) // _MB)
+                used = sum((sum(vms[i].disks.values()) * vms[i].priority // _MB) * _LOAD_SCALE * x[i][j] for i in range(len(vms)))
+            
             uv = model.new_int_var(0, max_load_val, f"u_{m_type}_{node.name}")
             model.add_division_equality(uv, used, model.new_constant(cap)), u_vars.append(uv)
+            
             p_sum = sum(int((vms[i].cpu_pressure if m_type == "cpu" else vms[i].memory_pressure if m_type == "memory" else vms[i].io_pressure) * vms[i].priority * _LOAD_SCALE) * x[i][j] for i in range(len(vms)))
             pv = model.new_int_var(0, 3 * _LOAD_SCALE, f"p_{m_type}_{node.name}")
             model.add_division_equality(pv, p_sum, model.new_constant(100)), p_vars.append(pv)
+            
         ug = model.new_int_var(0, max_load_val, f"ug_{m_type}")
         if u_vars:
             mxu, mnu = model.new_int_var(0, max_load_val, f"mxu_{m_type}"), model.new_int_var(0, max_load_val, f"mnu_{m_type}")
@@ -242,12 +257,29 @@ def solve(cluster: Cluster, time_limit_s: float = 30.0, forbidden_placements: li
     else:
         for j, node in enumerate(nodes):
             if node.maintenance: continue
-            if method == "cpu": cap, used = max(1, node.cpu_total - node.cpu_reserve), sum(int(vms[i].cpu_usage * vms[i].priority * _LOAD_SCALE) * x[i][j] for i in range(len(vms)))
-            elif method in ["cpu_psi", "memory_psi", "io_psi"]:
-                cap, used = 100, sum(int((vms[i].cpu_pressure if method == "cpu_psi" else vms[i].memory_pressure if method == "memory_psi" else vms[i].io_pressure) * vms[i].priority * _LOAD_SCALE) * x[i][j] for i in range(len(vms)))
-            else: cap, used = max(1, (node.memory_total - node.memory_reserve) // _MB), sum((vms[i].memory * vms[i].priority // _MB) * _LOAD_SCALE * x[i][j] for i in range(len(vms)))
+            
+            if mode == "psi" or method in ["cpu_psi", "memory_psi", "io_psi"]:
+                res_type = method.split("_")[0] if "_" in method else method
+                if res_type == "disk": res_type = "io"
+                cap = 100
+                pressure_val = lambda v: v.cpu_pressure if res_type == "cpu" else v.memory_pressure if res_type == "memory" else v.io_pressure
+                used = sum(int(pressure_val(vms[i]) * vms[i].priority * _LOAD_SCALE) * x[i][j] for i in range(len(vms)))
+            elif method == "cpu":
+                cap = max(1, node.cpu_total - node.cpu_reserve)
+                if mode == "assigned":
+                    used = sum(vms[i].cpu * vms[i].priority * _LOAD_SCALE * x[i][j] for i in range(len(vms)))
+                else:
+                    used = sum(int(vms[i].cpu_usage * vms[i].priority * _LOAD_SCALE) * x[i][j] for i in range(len(vms)))
+            elif method == "disk":
+                cap = max(1, sum(node.storage_free.values()) // _MB)
+                used = sum((sum(vms[i].disks.values()) * vms[i].priority // _MB) * _LOAD_SCALE * x[i][j] for i in range(len(vms)))
+            else: # memory
+                cap = max(1, (node.memory_total - node.memory_reserve) // _MB)
+                used = sum((vms[i].memory * vms[i].priority // _MB) * _LOAD_SCALE * x[i][j] for i in range(len(vms)))
+                
             lv = model.new_int_var(0, max_load_val, f"l_{node.name}")
             model.add_division_equality(lv, used, model.new_constant(cap)), load_vars.append(lv)
+            
         load_gap = model.new_int_var(0, max_load_val, "gap")
         if load_vars:
             mx, mn = model.new_int_var(0, max_load_val, "mx"), model.new_int_var(0, max_load_val, "mn")

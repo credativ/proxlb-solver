@@ -82,6 +82,7 @@ class Constraints:
 class Balancing:
     """Configuration for the balancing algorithm."""
     method: str = "memory"      # Recommended default: RAM is the most critical resource.
+    mode: str = "used"          # Balancing mode: "used", "assigned", or "psi"
     balanciness: int = 3        # 1-5 level. 3 (Moderate) avoids excessive 'ping-pong' moves.
     cpu_overcommit: float = 2.0 # Standard industry default for safe overbooking.
     

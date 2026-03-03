@@ -31,6 +31,7 @@ def load_scenario(path: str | Path) -> Cluster:
         )
     balancing = Balancing(
         method=balancing_data.get("method", "memory"),
+        mode=balancing_data.get("mode", "used"),
         balanciness=balanciness,
         cpu_overcommit=balancing_data.get("cpu_overcommit", 2.0),
         w_balance=balancing_data.get("w_balance"),

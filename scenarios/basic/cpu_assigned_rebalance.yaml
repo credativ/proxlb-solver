@@ -1,0 +1,25 @@
+name: "CPU Assigned Balancing — Resource Reservation Spread"
+description: >
+  Cluster with 4 VMs. Real CPU usage is near zero, but VMs have 8 vCPUs each.
+  Initially 3 VMs on node-A, 1 on node-B. Solver should move one to node-B
+  to balance the assigned resources.
+
+balancing:
+  method: cpu
+  mode: assigned
+  balanciness: 5
+
+nodes:
+  node-A: {cpu_total: 16, memory_total_gb: 64}
+  node-B: {cpu_total: 16, memory_total_gb: 64}
+
+vms:
+  vm-1: {node: node-A, cpu: 8, memory_gb: 4, cpu_usage: 0.1}
+  vm-2: {node: node-A, cpu: 8, memory_gb: 4, cpu_usage: 0.1}
+  vm-3: {node: node-A, cpu: 8, memory_gb: 4, cpu_usage: 0.1}
+  vm-4: {node: node-B, cpu: 8, memory_gb: 4, cpu_usage: 0.1}
+
+expect:
+  feasible: true
+  spread_improved: true
+  max_migrations: 1

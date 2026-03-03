@@ -68,6 +68,7 @@ def from_proxlb_data(
     if isinstance(balancing_cfg, dict):
         balancing = Balancing(
             method=balancing_cfg.get("method", "memory"),
+            mode=balancing_cfg.get("mode", "used"),
             balanciness=balancing_cfg.get("balanciness", 3),
             cpu_overcommit=balancing_cfg.get("cpu_overcommit", 2.0),
             max_node_inflow=balancing_cfg.get("max_node_inflow", 1),
@@ -77,6 +78,7 @@ def from_proxlb_data(
         # Pydantic model access
         balancing = Balancing(
             method=getattr(balancing_cfg, "method", "memory"),
+            mode=getattr(balancing_cfg, "mode", "used"),
             balanciness=getattr(balancing_cfg, "balanciness", 3),
             cpu_overcommit=getattr(balancing_cfg, "cpu_overcommit", 2.0),
             max_node_inflow=getattr(balancing_cfg, "max_node_inflow", 1),
