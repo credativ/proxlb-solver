@@ -36,22 +36,22 @@ from .models import Cluster, Node, VM, Constraints, Balancing, Expect
 def _get_memory_reserve_bytes(node_name: str, reserve_cfg: dict) -> int:
     """
     Returns the configured memory reservation for a specific node in bytes.
-    
-    Resolution order: 
+
+    Resolution order:
     1. Node-specific override (e.g. reserve_cfg['pve-01']['memory'])
     2. Global default (reserve_cfg['defaults']['memory'])
     3. Zero (if nothing is configured)
     """
     node_config = reserve_cfg.get(node_name, {})
     default_config = reserve_cfg.get("defaults", {})
-    
+
     # Try node-specific first, then default
     gb = node_config.get("memory") or default_config.get("memory", 0)
-    
+
     # Ensure we have a numeric value
     if not isinstance(gb, (int, float)):
         gb = 0
-        
+
     return int(gb * 1024 ** 3)
 
 
@@ -65,9 +65,9 @@ def from_proxlb_data(
     pin_vms: set | None = None,
 ) -> Cluster:
     """
-    Converts a proxlb_data dict (from ProxLB main loop) into a Cluster 
+    Converts a proxlb_data dict (from ProxLB main loop) into a Cluster
     model ready for the solver.
-    
+
     Args:
         proxlb_data:      The merged dict built by ProxLB.
         use_reservations: If True, node reservations are applied explicitly.
@@ -76,7 +76,7 @@ def from_proxlb_data(
     """
     meta = proxlb_data.get("meta", {})
     balancing_cfg = meta.get("balancing", {})
-    
+
     # 1. Handle Balancing Configuration
     # ProxLB might provide this as a raw dict or a Pydantic model (depending on branch)
     if isinstance(balancing_cfg, dict):
@@ -86,6 +86,9 @@ def from_proxlb_data(
             mode=balancing_cfg.get("mode", "used"),
             balanciness=balancing_cfg.get("balanciness", 3),
             cpu_overcommit=balancing_cfg.get("cpu_overcommit", 2.0),
+            memory_threshold=balancing_cfg.get("memory_threshold"),
+            cpu_threshold=balancing_cfg.get("cpu_threshold"),
+            disk_threshold=balancing_cfg.get("disk_threshold"),
             max_node_inflow=balancing_cfg.get("max_node_inflow", 1),
             max_parallel_migrations=balancing_cfg.get("max_parallel_migrations")
         )
@@ -97,6 +100,9 @@ def from_proxlb_data(
             mode=getattr(balancing_cfg, "mode", "used"),
             balanciness=getattr(balancing_cfg, "balanciness", 3),
             cpu_overcommit=getattr(balancing_cfg, "cpu_overcommit", 2.0),
+            memory_threshold=getattr(balancing_cfg, "memory_threshold", None),
+            cpu_threshold=getattr(balancing_cfg, "cpu_threshold", None),
+            disk_threshold=getattr(balancing_cfg, "disk_threshold", None),
             max_node_inflow=getattr(balancing_cfg, "max_node_inflow", 1),
             max_parallel_migrations=getattr(balancing_cfg, "max_parallel_migrations", None)
         )
@@ -105,7 +111,7 @@ def from_proxlb_data(
     # 2. Map Physical Nodes
     nodes = []
     for name, nd in proxlb_data.get("nodes", {}).items():
-        
+
         # Helper to extract values from nested dicts (handle different ProxLB versions)
         def _get_val(key, subkey=None, default=0):
             val = nd.get(key)
@@ -148,7 +154,7 @@ def from_proxlb_data(
     ignore_list = []
 
     for name, guest_data in proxlb_data.get("guests", {}).items():
-        
+
         # Unified value extractor for guest metrics
         def _get_guest_val(key, subkey=None, default=0):
             val = guest_data.get(key)
@@ -170,7 +176,7 @@ def from_proxlb_data(
         ))
 
         # ── Parse Placement Rules ───────────────────────────────────────────
-        
+
         # A. Native Proxmox HA Rules
         for rule in guest_data.get("ha_rules", []):
             # Extract rule details (supporting both Dict and Pydantic)
@@ -209,11 +215,11 @@ def from_proxlb_data(
         # D. Node Pinning (Tags, Pools, or HA restricted nodes)
         if guest_data.get("node_relationships"):
             origins: list[dict] = []
-            
+
             # Record where the pin came from for logging/debugging
             for tag in guest_data.get("tags", []):
                 if tag.startswith("plb_pin"): origins.append({"origin": "tag", "source": tag})
-            
+
             for pool in guest_data.get("pools", []):
                 p_cfg = balancing_cfg.get("pools", {}).get(pool, {}) if isinstance(balancing_cfg, dict) else getattr(balancing_cfg, "pools", {}).get(pool, {})
                 has_pin = p_cfg.get("pin") if isinstance(p_cfg, dict) else getattr(p_cfg, "pin", None)
@@ -224,13 +230,13 @@ def from_proxlb_data(
                     r_type, r_nodes, r_id = rule.get("type"), rule.get("nodes"), rule.get("rule")
                 else:
                     r_type, r_nodes, r_id = getattr(rule, "type", None), getattr(rule, "nodes", None), getattr(rule, "rule", None)
-                
+
                 if r_type == "affinity" and r_nodes:
                     origins.append({"origin": "pve", "source": r_id})
 
             pin_rules.append({
                 "vm": name,
-                "nodes": guest_data["node_relationships"], 
+                "nodes": guest_data["node_relationships"],
                 "origins": origins,
             })
 

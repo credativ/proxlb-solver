@@ -34,6 +34,9 @@ def load_scenario(path: str | Path) -> Cluster:
         mode=balancing_data.get("mode", "used"),
         balanciness=balanciness,
         cpu_overcommit=balancing_data.get("cpu_overcommit", 2.0),
+        memory_threshold=balancing_data.get("memory_threshold"),
+        cpu_threshold=balancing_data.get("cpu_threshold"),
+        disk_threshold=balancing_data.get("disk_threshold"),
         w_balance=balancing_data.get("w_balance"),
         w_stickiness=balancing_data.get("w_stickiness"),
         w_cpu_usage=balancing_data.get("w_cpu_usage", 1),
@@ -55,13 +58,13 @@ def load_scenario(path: str | Path) -> Cluster:
             sname: _gb_to_bytes(sval)
             for sname, sval in nd.get("storage_free", {}).items()
         }
-        
+
         reserve_data = nd.get("reserve", {})
         storage_reserve = {
             sname: _gb_to_bytes(sval)
             for sname, sval in reserve_data.get("storage_gb", {}).items()
         }
-        
+
         nodes.append(Node(
             name=name,
             cpu_total=nd["cpu_total"],
@@ -80,7 +83,7 @@ def load_scenario(path: str | Path) -> Cluster:
     tag_affinity = defaultdict(list)
     tag_anti_affinity = defaultdict(list)
     tag_pin = []
-    
+
     for name, vd in data.get("vms", {}).items():
         disks = {
             sname: _gb_to_bytes(sval)
@@ -99,7 +102,7 @@ def load_scenario(path: str | Path) -> Cluster:
             priority=vd.get("priority", 2),
             vm_type=vd.get("type", "vm"),
         ))
-        
+
         # Parse tags for implicit constraints
         for tag in vd.get("tags", []):
             if tag.startswith("plb_affinity_"):
