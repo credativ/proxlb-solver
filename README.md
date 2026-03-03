@@ -124,12 +124,14 @@ The solver distinguishes between rules based on their `origin`:
 
 ## 6. Reachability Guarantee & Migration Planning
 
-An optimal state is worthless if it cannot be executed (e.g., no buffer space for a swap).
+An optimal state is worthless if it cannot be executed (e.g., no buffer space for a swap). The Solver finds the *target state*, but the **Planner** determines the *safe path* to get there.
 
-1.  **Planner Verification**: Every solver solution is passed to the Planner to find an executable sequence of moves.
-2.  **Dependency Resolution**: Detects chains where Guest-A must move before Guest-B can fit.
-3.  **Cycle Breaking (Temp-Moves)**: Detects circular dependencies (A → B, B → A). If a third node exists with sufficient free capacity, the Planner adds a **temp-move** (parking) to break the cycle.
-4.  **No-Good Feedback**: If a cycle is unbreakable (cluster too full for parking), the solution is marked as "No-Good" and the Solver is triggered again to find the next-best reachable state.
+1.  **Dependency Analysis**: The Planner builds a directed graph where an edge $A \to B$ means "Guest A must move before Guest B can fit on its target node".
+2.  **Step-by-Step Simulation**: Migrations are grouped into execution steps. For every step, the Planner simulates node capacities to ensure that no host is oversubscribed even during the transition.
+3.  **Cycle Breaking (Temp-Moves)**: Circular dependencies (e.g., Guest-A $\leftrightarrow$ Guest-B swap) are detected. If a third "spare" node with sufficient capacity exists, the Planner inserts a **temp-move** (parking) to break the loop.
+4.  **Atomic PVE Affinity**: For native Proxmox affinity groups, the Planner picks one "trigger" guest for the API call. It assumes Proxmox will co-migrate the other group members atomically and accounts for their total resource footprint in that single step.
+5.  **Strict PVE Anti-Affinity**: To satisfy native PVE anti-affinity, the Planner ensures that partners **never** share a node, even temporarily. One must fully vacate the target before the other is allowed to land.
+6.  **No-Good Feedback**: If a dependency cycle is mathematically unbreakable (e.g., cluster is too full for parking), the Planner rejects the solution. The Solver is then re-triggered with a "No-Good" constraint to find the next-best reachable state.
 
 ---
 
@@ -151,7 +153,7 @@ The ProxLB Solver is tuned for **Stability over Agility** by default.
 
 #### 1. Operational Safety
 *   **`max_node_inflow` (Default: 1)**: Only one guest at a time can migrate *into* a host. This prevents memory or CPU peaks that could trigger OOM on the target host.
-*   **`max_parallel_migrations` (Default: 2)**: Limits simultaneous migrations cluster-wide. 
+*   **`max_parallel_migrations` (Default: 2)**: Limits simultaneous migrations cluster-wide.
 *   **`balanciness` (Default: 3 — Moderate)**:
     *   Level 1–2: Only moves guests for maintenance or hard rule violations.
     *   Level 3: Rebalances only if the spread exceeds ~15%.
