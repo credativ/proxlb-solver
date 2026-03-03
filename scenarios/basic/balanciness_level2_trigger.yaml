@@ -1,6 +1,6 @@
 name: "Balanciness Level 2 — Above Threshold"
 description: >
-  Cluster with 40% load gap and balanciness=2 (Low). 
+  Cluster with 40% load gap and balanciness=2 (Low).
   Threshold for Level 2 is 25%. Rebalancing should occur.
 
 balancing:

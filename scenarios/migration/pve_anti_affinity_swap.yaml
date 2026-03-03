@@ -3,7 +3,7 @@ description: >
   Demonstrates that native PVE anti-affinity rules (origin: pve) force
   a specific migration sequence or temp-moves even if capacity is
   plentiful. If vm-a and vm-b swap nodes and have native anti-affinity,
-  the planner must ensure they are never on the same node during the 
+  the planner must ensure they are never on the same node during the
   transition. In this scenario, capacity is ample, but the anti-affinity
   forces a dependency that leads to a temp move or serialized steps
   if a spare node is available.

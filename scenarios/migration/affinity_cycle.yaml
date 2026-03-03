@@ -1,7 +1,7 @@
 name: "Affinity Group Cycle"
 description: >
   Two affinity groups (A and B) want to swap nodes. Each group is too large
-   to share a node with the other. A temp move is required. The planner 
+   to share a node with the other. A temp move is required. The planner
    must move the ENTIRE group A to node-C to break the cycle.
 
 balancing:

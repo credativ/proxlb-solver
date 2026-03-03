@@ -1,7 +1,7 @@
 name: "Anti-Affinity Constraint Fix"
 description: >
   vm-1 and vm-2 are initially on the same node (node-A).
-  An anti-affinity rule requires them to be on different nodes. 
+  An anti-affinity rule requires them to be on different nodes.
   The solver must move one of them away.
 
 balancing:
