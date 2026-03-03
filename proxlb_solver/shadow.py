@@ -435,17 +435,18 @@ def _log_resolve(run_file: str | None, solution: Any, step_retry: int) -> None:
 
 
 def _verify_step(proxmox_api: Any, step_migrations: dict) -> dict:
-    """Query actual VM locations via the PVE cluster API.
+    """Query actual guest locations via the PVE cluster API.
 
-    Returns a dict mapping ``vm_name → actual_node`` (``None`` when the VM
+    Returns a dict mapping ``guest_name → actual_node`` (``None`` when the guest
     cannot be found or the API call fails, which is treated as failure).
     """
     try:
-        resources = proxmox_api.cluster.resources.get(type="vm")
+        # Query all resources to cover both VMs and Containers
+        resources = proxmox_api.cluster.resources.get()
     except Exception:
-        # API failure — treat every VM as unverified (None → counted as failed).
+        # API failure — treat every guest as unverified (None → counted as failed).
         return {vm: None for vm in step_migrations}
-    actual_nodes = {r.get("name"): r.get("node") for r in resources if r.get("name")}
+    actual_nodes = {r.get("name"): r.get("node") for r in resources if r.get("type") in ("vm", "ct") and r.get("name")}
     return {vm: actual_nodes.get(vm) for vm in step_migrations}
 
 
