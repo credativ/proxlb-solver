@@ -87,14 +87,16 @@ def _initial_load_gap_single(cluster: Cluster, resource_type: str, use_psi: bool
     """
     Calculates the load gap (Spread) for a specific resource type.
     The gap is defined as the difference between the most loaded and least loaded node.
-
+    
     If use_psi is True, Pressure Stall Information is used (relative to 100% capacity).
     Otherwise, standard usage or assigned metrics are used.
     """
     loads = []
     for node in cluster.nodes:
-        if node.maintenance: continue
-
+        # Ignore nodes that are in maintenance or being evacuated
+        if node.maintenance or node.name == cluster.evacuate_node:
+            continue
+        
         if use_psi:
             # Pressure is always relative to a fixed 100% capacity per node
             vms_on_node = [vm for vm in cluster.vms if vm.node == node.name]
@@ -103,11 +105,10 @@ def _initial_load_gap_single(cluster: Cluster, resource_type: str, use_psi: bool
             capacity = 100.0
         else:
             usage, capacity = _get_node_load_and_capacity(cluster, node.name, resource_type)
-
+            
         loads.append(usage / capacity)
-
+        
     return max(loads) - min(loads) if loads else 0.0
-
 
 def _initial_load_gap(cluster: Cluster) -> float:
     """
@@ -328,7 +329,9 @@ def solve(cluster: Cluster, time_limit_s: float = 30.0, forbidden_placements: li
         """Helper to create balanced-load variables."""
         node_loads = []
         for j, node in enumerate(nodes):
-            if node.maintenance: continue
+            # Ignore nodes that are in maintenance or being evacuated
+            if node.maintenance or node.name == cluster.evacuate_node:
+                continue
 
             if use_psi:
                 cap = 100

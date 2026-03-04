@@ -167,6 +167,7 @@ class SolverStats:
     migration_count: int
     wall_time_ms: float
     migration_cost_gib: int = 0  # Weighted migration cost: RAM GiB + 4×local-disk GiB
+    benchmark: list[dict] = field(default_factory=list) # Iterative solver metrics
 
 
 @dataclass(frozen=True)
