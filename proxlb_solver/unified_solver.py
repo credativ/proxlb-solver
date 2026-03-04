@@ -246,6 +246,11 @@ def _solve_fixed_t(cluster: Cluster, T: int, time_limit_s: float) -> tuple[Solut
     solver = cp_model.CpSolver()
     solver.parameters.max_time_in_seconds = time_limit_s
     solver.parameters.num_search_workers = 8
+    
+    # Problem size metrics
+    num_vars = len(model.Proto().variables)
+    num_cons = len(model.Proto().constraints)
+    
     t0 = time.monotonic(); status = solver.solve(model); dur = (time.monotonic()-t0)*1000
     
     # Benchmarking metrics
@@ -253,6 +258,8 @@ def _solve_fixed_t(cluster: Cluster, T: int, time_limit_s: float) -> tuple[Solut
     bench = {
         "status": solver.status_name(status), 
         "duration_ms": dur, 
+        "variables": num_vars,
+        "constraints": num_cons,
         "branches": solver.num_branches, 
         "conflicts": solver.num_conflicts, 
         "gap": solver.value(load_gap) if status in (cp_model.OPTIMAL, cp_model.FEASIBLE) else 0, 
