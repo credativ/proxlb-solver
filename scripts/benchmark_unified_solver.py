@@ -6,8 +6,9 @@ from pathlib import Path
 import pandas as pd
 from jinja2 import Template
 
-# Setup paths
-sys.path.append(os.getcwd() + "/proxlb-solver")
+# Setup paths - ensure we can find the proxlb_solver module
+base_dir = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(base_dir))
 
 from proxlb_solver.loader import load_scenario
 from proxlb_solver.solver import solve_reachable
@@ -157,10 +158,17 @@ HTML_TEMPLATE = """
 """
 
 def benchmark():
-    scenarios_dir = Path("proxlb-solver/scenarios")
+    # Find scenarios relative to this script
+    base_dir = Path(__file__).resolve().parent.parent
+    scenarios_dir = base_dir / "scenarios"
     files = sorted(list(scenarios_dir.rglob("*.yaml")))
+    
     results = []
     
+    if not files:
+        print(f"Error: No scenarios found in {scenarios_dir}")
+        return
+        
     print(f"Generating Expert Report for {len(files)} scenarios...")
     
     uni_wins, std_wins, draws = 0, 0, 0
