@@ -1,0 +1,634 @@
+name: "Bin Packing 20x256 (65 VMs, seed=42)"
+description: >
+  Falkenauer-style bin packing: 65 VMs into 20 bins of capacity 256. Items
+    constructed by partitioning each bin's capacity, then shuffled to hide
+    the solution. A valid packing exists by construction.
+
+# Generation metadata
+#   num_bins: 20
+#   bin_capacity: 256
+#   num_vms: 65
+#   min_group_size: 2
+#   max_group_size: 5
+#   min_vm_size: 1
+#   max_vm_size: None
+#   seed: 42
+
+# Ground truth solution
+#   node-0 [256/256]: vm-0(249), vm-38(7)
+#   node-1 [256/256]: vm-13(36), vm-46(162), vm-55(58)
+#   node-2 [256/256]: vm-17(104), vm-57(152)
+#   node-3 [256/256]: vm-54(248), vm-60(8)
+#   node-4 [256/256]: vm-15(66), vm-51(60), vm-53(130)
+#   node-5 [256/256]: vm-4(184), vm-14(2), vm-61(70)
+#   node-6 [256/256]: vm-2(47), vm-9(21), vm-32(1), vm-35(36), vm-40(151)
+#   node-7 [256/256]: vm-18(246), vm-20(6), vm-34(4)
+#   node-8 [256/256]: vm-8(25), vm-12(11), vm-45(92), vm-48(89), vm-62(39)
+#   node-9 [256/256]: vm-10(250), vm-42(6)
+#   node-10 [256/256]: vm-23(142), vm-58(114)
+#   node-11 [256/256]: vm-36(9), vm-39(148), vm-41(74), vm-59(25)
+#   node-12 [256/256]: vm-1(1), vm-5(253), vm-33(1), vm-47(1)
+#   node-13 [256/256]: vm-7(117), vm-11(72), vm-22(47), vm-49(14), vm-52(6)
+#   node-14 [256/256]: vm-16(156), vm-44(100)
+#   node-15 [256/256]: vm-28(119), vm-43(42), vm-56(95)
+#   node-16 [256/256]: vm-24(176), vm-50(42), vm-63(38)
+#   node-17 [256/256]: vm-19(207), vm-64(49)
+#   node-18 [256/256]: vm-3(55), vm-21(69), vm-26(17), vm-30(42), vm-31(73)
+#   node-19 [256/256]: vm-6(21), vm-25(3), vm-27(227), vm-29(1), vm-37(4)
+
+balancing:
+  method: memory
+
+nodes:
+  node-spare-init:
+    cpu_total: 5120
+    memory_total_gb: 5120
+  node-0:
+    cpu_total: 256
+    memory_total_gb: 256
+  node-1:
+    cpu_total: 256
+    memory_total_gb: 256
+  node-2:
+    cpu_total: 256
+    memory_total_gb: 256
+  node-3:
+    cpu_total: 256
+    memory_total_gb: 256
+  node-4:
+    cpu_total: 256
+    memory_total_gb: 256
+  node-5:
+    cpu_total: 256
+    memory_total_gb: 256
+  node-6:
+    cpu_total: 256
+    memory_total_gb: 256
+  node-7:
+    cpu_total: 256
+    memory_total_gb: 256
+  node-8:
+    cpu_total: 256
+    memory_total_gb: 256
+  node-9:
+    cpu_total: 256
+    memory_total_gb: 256
+  node-10:
+    cpu_total: 256
+    memory_total_gb: 256
+  node-11:
+    cpu_total: 256
+    memory_total_gb: 256
+  node-12:
+    cpu_total: 256
+    memory_total_gb: 256
+  node-13:
+    cpu_total: 256
+    memory_total_gb: 256
+  node-14:
+    cpu_total: 256
+    memory_total_gb: 256
+  node-15:
+    cpu_total: 256
+    memory_total_gb: 256
+  node-16:
+    cpu_total: 256
+    memory_total_gb: 256
+  node-17:
+    cpu_total: 256
+    memory_total_gb: 256
+  node-18:
+    cpu_total: 256
+    memory_total_gb: 256
+  node-19:
+    cpu_total: 256
+    memory_total_gb: 256
+
+vms:
+  vm-0:
+    node: node-spare-init
+    cpu: 249
+    memory_gb: 249
+    type: vm
+  vm-1:
+    node: node-spare-init
+    cpu: 1
+    memory_gb: 1
+    type: vm
+  vm-2:
+    node: node-spare-init
+    cpu: 47
+    memory_gb: 47
+    type: vm
+  vm-3:
+    node: node-spare-init
+    cpu: 55
+    memory_gb: 55
+    type: vm
+  vm-4:
+    node: node-spare-init
+    cpu: 184
+    memory_gb: 184
+    type: vm
+  vm-5:
+    node: node-spare-init
+    cpu: 253
+    memory_gb: 253
+    type: vm
+  vm-6:
+    node: node-spare-init
+    cpu: 21
+    memory_gb: 21
+    type: vm
+  vm-7:
+    node: node-spare-init
+    cpu: 117
+    memory_gb: 117
+    type: vm
+  vm-8:
+    node: node-spare-init
+    cpu: 25
+    memory_gb: 25
+    type: vm
+  vm-9:
+    node: node-spare-init
+    cpu: 21
+    memory_gb: 21
+    type: vm
+  vm-10:
+    node: node-spare-init
+    cpu: 250
+    memory_gb: 250
+    type: vm
+  vm-11:
+    node: node-spare-init
+    cpu: 72
+    memory_gb: 72
+    type: vm
+  vm-12:
+    node: node-spare-init
+    cpu: 11
+    memory_gb: 11
+    type: vm
+  vm-13:
+    node: node-spare-init
+    cpu: 36
+    memory_gb: 36
+    type: vm
+  vm-14:
+    node: node-spare-init
+    cpu: 2
+    memory_gb: 2
+    type: vm
+  vm-15:
+    node: node-spare-init
+    cpu: 66
+    memory_gb: 66
+    type: vm
+  vm-16:
+    node: node-spare-init
+    cpu: 156
+    memory_gb: 156
+    type: vm
+  vm-17:
+    node: node-spare-init
+    cpu: 104
+    memory_gb: 104
+    type: vm
+  vm-18:
+    node: node-spare-init
+    cpu: 246
+    memory_gb: 246
+    type: vm
+  vm-19:
+    node: node-spare-init
+    cpu: 207
+    memory_gb: 207
+    type: vm
+  vm-20:
+    node: node-spare-init
+    cpu: 6
+    memory_gb: 6
+    type: vm
+  vm-21:
+    node: node-spare-init
+    cpu: 69
+    memory_gb: 69
+    type: vm
+  vm-22:
+    node: node-spare-init
+    cpu: 47
+    memory_gb: 47
+    type: vm
+  vm-23:
+    node: node-spare-init
+    cpu: 142
+    memory_gb: 142
+    type: vm
+  vm-24:
+    node: node-spare-init
+    cpu: 176
+    memory_gb: 176
+    type: vm
+  vm-25:
+    node: node-spare-init
+    cpu: 3
+    memory_gb: 3
+    type: vm
+  vm-26:
+    node: node-spare-init
+    cpu: 17
+    memory_gb: 17
+    type: vm
+  vm-27:
+    node: node-spare-init
+    cpu: 227
+    memory_gb: 227
+    type: vm
+  vm-28:
+    node: node-spare-init
+    cpu: 119
+    memory_gb: 119
+    type: vm
+  vm-29:
+    node: node-spare-init
+    cpu: 1
+    memory_gb: 1
+    type: vm
+  vm-30:
+    node: node-spare-init
+    cpu: 42
+    memory_gb: 42
+    type: vm
+  vm-31:
+    node: node-spare-init
+    cpu: 73
+    memory_gb: 73
+    type: vm
+  vm-32:
+    node: node-spare-init
+    cpu: 1
+    memory_gb: 1
+    type: vm
+  vm-33:
+    node: node-spare-init
+    cpu: 1
+    memory_gb: 1
+    type: vm
+  vm-34:
+    node: node-spare-init
+    cpu: 4
+    memory_gb: 4
+    type: vm
+  vm-35:
+    node: node-spare-init
+    cpu: 36
+    memory_gb: 36
+    type: vm
+  vm-36:
+    node: node-spare-init
+    cpu: 9
+    memory_gb: 9
+    type: vm
+  vm-37:
+    node: node-spare-init
+    cpu: 4
+    memory_gb: 4
+    type: vm
+  vm-38:
+    node: node-spare-init
+    cpu: 7
+    memory_gb: 7
+    type: vm
+  vm-39:
+    node: node-spare-init
+    cpu: 148
+    memory_gb: 148
+    type: vm
+  vm-40:
+    node: node-spare-init
+    cpu: 151
+    memory_gb: 151
+    type: vm
+  vm-41:
+    node: node-spare-init
+    cpu: 74
+    memory_gb: 74
+    type: vm
+  vm-42:
+    node: node-spare-init
+    cpu: 6
+    memory_gb: 6
+    type: vm
+  vm-43:
+    node: node-spare-init
+    cpu: 42
+    memory_gb: 42
+    type: vm
+  vm-44:
+    node: node-spare-init
+    cpu: 100
+    memory_gb: 100
+    type: vm
+  vm-45:
+    node: node-spare-init
+    cpu: 92
+    memory_gb: 92
+    type: vm
+  vm-46:
+    node: node-spare-init
+    cpu: 162
+    memory_gb: 162
+    type: vm
+  vm-47:
+    node: node-spare-init
+    cpu: 1
+    memory_gb: 1
+    type: vm
+  vm-48:
+    node: node-spare-init
+    cpu: 89
+    memory_gb: 89
+    type: vm
+  vm-49:
+    node: node-spare-init
+    cpu: 14
+    memory_gb: 14
+    type: vm
+  vm-50:
+    node: node-spare-init
+    cpu: 42
+    memory_gb: 42
+    type: vm
+  vm-51:
+    node: node-spare-init
+    cpu: 60
+    memory_gb: 60
+    type: vm
+  vm-52:
+    node: node-spare-init
+    cpu: 6
+    memory_gb: 6
+    type: vm
+  vm-53:
+    node: node-spare-init
+    cpu: 130
+    memory_gb: 130
+    type: vm
+  vm-54:
+    node: node-spare-init
+    cpu: 248
+    memory_gb: 248
+    type: vm
+  vm-55:
+    node: node-spare-init
+    cpu: 58
+    memory_gb: 58
+    type: vm
+  vm-56:
+    node: node-spare-init
+    cpu: 95
+    memory_gb: 95
+    type: vm
+  vm-57:
+    node: node-spare-init
+    cpu: 152
+    memory_gb: 152
+    type: vm
+  vm-58:
+    node: node-spare-init
+    cpu: 114
+    memory_gb: 114
+    type: vm
+  vm-59:
+    node: node-spare-init
+    cpu: 25
+    memory_gb: 25
+    type: vm
+  vm-60:
+    node: node-spare-init
+    cpu: 8
+    memory_gb: 8
+    type: vm
+  vm-61:
+    node: node-spare-init
+    cpu: 70
+    memory_gb: 70
+    type: vm
+  vm-62:
+    node: node-spare-init
+    cpu: 39
+    memory_gb: 39
+    type: vm
+  vm-63:
+    node: node-spare-init
+    cpu: 38
+    memory_gb: 38
+    type: vm
+  vm-64:
+    node: node-spare-init
+    cpu: 49
+    memory_gb: 49
+    type: vm
+
+constraints:
+  pin:
+    - vm: vm-0
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+      strict: true
+    - vm: vm-1
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+      strict: true
+    - vm: vm-2
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+      strict: true
+    - vm: vm-3
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+      strict: true
+    - vm: vm-4
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+      strict: true
+    - vm: vm-5
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+      strict: true
+    - vm: vm-6
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+      strict: true
+    - vm: vm-7
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+      strict: true
+    - vm: vm-8
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+      strict: true
+    - vm: vm-9
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+      strict: true
+    - vm: vm-10
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+      strict: true
+    - vm: vm-11
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+      strict: true
+    - vm: vm-12
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+      strict: true
+    - vm: vm-13
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+      strict: true
+    - vm: vm-14
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+      strict: true
+    - vm: vm-15
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+      strict: true
+    - vm: vm-16
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+      strict: true
+    - vm: vm-17
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+      strict: true
+    - vm: vm-18
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+      strict: true
+    - vm: vm-19
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+      strict: true
+    - vm: vm-20
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+      strict: true
+    - vm: vm-21
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+      strict: true
+    - vm: vm-22
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+      strict: true
+    - vm: vm-23
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+      strict: true
+    - vm: vm-24
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+      strict: true
+    - vm: vm-25
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+      strict: true
+    - vm: vm-26
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+      strict: true
+    - vm: vm-27
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+      strict: true
+    - vm: vm-28
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+      strict: true
+    - vm: vm-29
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+      strict: true
+    - vm: vm-30
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+      strict: true
+    - vm: vm-31
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+      strict: true
+    - vm: vm-32
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+      strict: true
+    - vm: vm-33
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+      strict: true
+    - vm: vm-34
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+      strict: true
+    - vm: vm-35
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+      strict: true
+    - vm: vm-36
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+      strict: true
+    - vm: vm-37
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+      strict: true
+    - vm: vm-38
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+      strict: true
+    - vm: vm-39
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+      strict: true
+    - vm: vm-40
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+      strict: true
+    - vm: vm-41
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+      strict: true
+    - vm: vm-42
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+      strict: true
+    - vm: vm-43
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+      strict: true
+    - vm: vm-44
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+      strict: true
+    - vm: vm-45
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+      strict: true
+    - vm: vm-46
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+      strict: true
+    - vm: vm-47
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+      strict: true
+    - vm: vm-48
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+      strict: true
+    - vm: vm-49
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+      strict: true
+    - vm: vm-50
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+      strict: true
+    - vm: vm-51
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+      strict: true
+    - vm: vm-52
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+      strict: true
+    - vm: vm-53
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+      strict: true
+    - vm: vm-54
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+      strict: true
+    - vm: vm-55
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+      strict: true
+    - vm: vm-56
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+      strict: true
+    - vm: vm-57
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+      strict: true
+    - vm: vm-58
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+      strict: true
+    - vm: vm-59
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+      strict: true
+    - vm: vm-60
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+      strict: true
+    - vm: vm-61
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+      strict: true
+    - vm: vm-62
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+      strict: true
+    - vm: vm-63
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+      strict: true
+    - vm: vm-64
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+      strict: true
+
+expect:
+  feasible: true
+  constraints_satisfied: true
