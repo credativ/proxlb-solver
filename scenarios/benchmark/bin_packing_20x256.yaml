@@ -1,0 +1,238 @@
+name: "Bin Packing 20x256 (65 VMs, seed=42)"
+description: >
+  Falkenauer-style bin packing: 65 VMs into 20 bins of capacity 256. 
+  A valid packing exists by construction. Tests rebalancing of a large
+  number of VMs from a single source node.
+
+balancing:
+  method: memory
+  balanciness: 5
+  max_parallel_migrations: 20
+  max_node_inflow: 10 # Slightly more headroom for landing VMs
+
+nodes:
+  node-spare-init: {cpu_total: 5120, memory_total_gb: 5120}
+  node-0: {cpu_total: 256, memory_total_gb: 256}
+  node-1: {cpu_total: 256, memory_total_gb: 256}
+  node-2: {cpu_total: 256, memory_total_gb: 256}
+  node-3: {cpu_total: 256, memory_total_gb: 256}
+  node-4: {cpu_total: 256, memory_total_gb: 256}
+  node-5: {cpu_total: 256, memory_total_gb: 256}
+  node-6: {cpu_total: 256, memory_total_gb: 256}
+  node-7: {cpu_total: 256, memory_total_gb: 256}
+  node-8: {cpu_total: 256, memory_total_gb: 256}
+  node-9: {cpu_total: 256, memory_total_gb: 256}
+  node-10: {cpu_total: 256, memory_total_gb: 256}
+  node-11: {cpu_total: 256, memory_total_gb: 256}
+  node-12: {cpu_total: 256, memory_total_gb: 256}
+  node-13: {cpu_total: 256, memory_total_gb: 256}
+  node-14: {cpu_total: 256, memory_total_gb: 256}
+  node-15: {cpu_total: 256, memory_total_gb: 256}
+  node-16: {cpu_total: 256, memory_total_gb: 256}
+  node-17: {cpu_total: 256, memory_total_gb: 256}
+  node-18: {cpu_total: 256, memory_total_gb: 256}
+  node-19: {cpu_total: 256, memory_total_gb: 256}
+
+vms:
+  vm-0: {node: node-spare-init, cpu: 249, memory_gb: 249}
+  vm-1: {node: node-spare-init, cpu: 1, memory_gb: 1}
+  vm-2: {node: node-spare-init, cpu: 47, memory_gb: 47}
+  vm-3: {node: node-spare-init, cpu: 55, memory_gb: 55}
+  vm-4: {node: node-spare-init, cpu: 184, memory_gb: 184}
+  vm-5: {node: node-spare-init, cpu: 253, memory_gb: 253}
+  vm-6: {node: node-spare-init, cpu: 21, memory_gb: 21}
+  vm-7: {node: node-spare-init, cpu: 117, memory_gb: 117}
+  vm-8: {node: node-spare-init, cpu: 25, memory_gb: 25}
+  vm-9: {node: node-spare-init, cpu: 21, memory_gb: 21}
+  vm-10: {node: node-spare-init, cpu: 250, memory_gb: 250}
+  vm-11: {node: node-spare-init, cpu: 72, memory_gb: 72}
+  vm-12: {node: node-spare-init, cpu: 11, memory_gb: 11}
+  vm-13: {node: node-spare-init, cpu: 36, memory_gb: 36}
+  vm-14: {node: node-spare-init, cpu: 2, memory_gb: 2}
+  vm-15: {node: node-spare-init, cpu: 66, memory_gb: 66}
+  vm-16: {node: node-spare-init, cpu: 156, memory_gb: 156}
+  vm-17: {node: node-spare-init, cpu: 104, memory_gb: 104}
+  vm-18: {node: node-spare-init, cpu: 246, memory_gb: 246}
+  vm-19: {node: node-spare-init, cpu: 207, memory_gb: 207}
+  vm-20: {node: node-spare-init, cpu: 6, memory_gb: 6}
+  vm-21: {node: node-spare-init, cpu: 69, memory_gb: 69}
+  vm-22: {node: node-spare-init, cpu: 47, memory_gb: 47}
+  vm-23: {node: node-spare-init, cpu: 142, memory_gb: 142}
+  vm-24: {node: node-spare-init, cpu: 176, memory_gb: 176}
+  vm-25: {node: node-spare-init, cpu: 3, memory_gb: 3}
+  vm-26: {node: node-spare-init, cpu: 17, memory_gb: 17}
+  vm-27: {node: node-spare-init, cpu: 227, memory_gb: 227}
+  vm-28: {node: node-spare-init, cpu: 119, memory_gb: 119}
+  vm-29: {node: node-spare-init, cpu: 1, memory_gb: 1}
+  vm-30: {node: node-spare-init, cpu: 42, memory_gb: 42}
+  vm-31: {node: node-spare-init, cpu: 73, memory_gb: 73}
+  vm-32: {node: node-spare-init, cpu: 1, memory_gb: 1}
+  vm-33: {node: node-spare-init, cpu: 1, memory_gb: 1}
+  vm-34: {node: node-spare-init, cpu: 4, memory_gb: 4}
+  vm-35: {node: node-spare-init, cpu: 36, memory_gb: 36}
+  vm-36: {node: node-spare-init, cpu: 9, memory_gb: 9}
+  vm-37: {node: node-spare-init, cpu: 4, memory_gb: 4}
+  vm-38: {node: node-spare-init, cpu: 7, memory_gb: 7}
+  vm-39: {node: node-spare-init, cpu: 148, memory_gb: 148}
+  vm-40: {node: node-spare-init, cpu: 151, memory_gb: 151}
+  vm-41: {node: node-spare-init, cpu: 74, memory_gb: 74}
+  vm-42: {node: node-spare-init, cpu: 6, memory_gb: 6}
+  vm-43: {node: node-spare-init, cpu: 42, memory_gb: 42}
+  vm-44: {node: node-spare-init, cpu: 100, memory_gb: 100}
+  vm-45: {node: node-spare-init, cpu: 92, memory_gb: 92}
+  vm-46: {node: node-spare-init, cpu: 162, memory_gb: 162}
+  vm-47: {node: node-spare-init, cpu: 1, memory_gb: 1}
+  vm-48: {node: node-spare-init, cpu: 89, memory_gb: 89}
+  vm-49: {node: node-spare-init, cpu: 14, memory_gb: 14}
+  vm-50: {node: node-spare-init, cpu: 42, memory_gb: 42}
+  vm-51: {node: node-spare-init, cpu: 60, memory_gb: 60}
+  vm-52: {node: node-spare-init, cpu: 6, memory_gb: 6}
+  vm-53: {node: node-spare-init, cpu: 130, memory_gb: 130}
+  vm-54: {node: node-spare-init, cpu: 248, memory_gb: 248}
+  vm-55: {node: node-spare-init, cpu: 58, memory_gb: 58}
+  vm-56: {node: node-spare-init, cpu: 95, memory_gb: 95}
+  vm-57: {node: node-spare-init, cpu: 152, memory_gb: 152}
+  vm-58: {node: node-spare-init, cpu: 114, memory_gb: 114}
+  vm-59: {node: node-spare-init, cpu: 25, memory_gb: 25}
+  vm-60: {node: node-spare-init, cpu: 8, memory_gb: 8}
+  vm-61: {node: node-spare-init, cpu: 70, memory_gb: 70}
+  vm-62: {node: node-spare-init, cpu: 39, memory_gb: 39}
+  vm-63: {node: node-spare-init, cpu: 38, memory_gb: 38}
+  vm-64: {node: node-spare-init, cpu: 49, memory_gb: 49}
+
+constraints:
+  pin:
+    - vm: vm-0
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+    - vm: vm-1
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+    - vm: vm-2
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+    - vm: vm-3
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+    - vm: vm-4
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+    - vm: vm-5
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+    - vm: vm-6
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+    - vm: vm-7
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+    - vm: vm-8
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+    - vm: vm-9
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+    - vm: vm-10
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+    - vm: vm-11
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+    - vm: vm-12
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+    - vm: vm-13
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+    - vm: vm-14
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+    - vm: vm-15
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+    - vm: vm-16
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+    - vm: vm-17
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+    - vm: vm-18
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+    - vm: vm-19
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+    - vm: vm-20
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+    - vm: vm-21
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+    - vm: vm-22
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+    - vm: vm-23
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+    - vm: vm-24
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+    - vm: vm-25
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+    - vm: vm-26
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+    - vm: vm-27
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+    - vm: vm-28
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+    - vm: vm-29
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+    - vm: vm-30
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+    - vm: vm-31
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+    - vm: vm-32
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+    - vm: vm-33
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+    - vm: vm-34
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+    - vm: vm-35
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+    - vm: vm-36
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+    - vm: vm-37
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+    - vm: vm-38
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+    - vm: vm-39
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+    - vm: vm-40
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+    - vm: vm-41
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+    - vm: vm-42
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+    - vm: vm-43
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+    - vm: vm-44
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+    - vm: vm-45
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+    - vm: vm-46
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+    - vm: vm-47
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+    - vm: vm-48
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+    - vm: vm-49
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+    - vm: vm-50
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+    - vm: vm-51
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+    - vm: vm-52
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+    - vm: vm-53
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+    - vm: vm-54
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+    - vm: vm-55
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+    - vm: vm-56
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+    - vm: vm-57
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+    - vm: vm-58
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+    - vm: vm-59
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+    - vm: vm-60
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+    - vm: vm-61
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+    - vm: vm-62
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+    - vm: vm-63
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+    - vm: vm-64
+      nodes: [node-0, node-1, node-2, node-3, node-4, node-5, node-6, node-7, node-8, node-9, node-10, node-11, node-12, node-13, node-14, node-15, node-16, node-17, node-18, node-19]
+
+expect:
+  feasible: true
+  constraints_satisfied: true
