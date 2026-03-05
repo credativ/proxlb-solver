@@ -10,12 +10,12 @@ balancing:
 
 nodes:
   node-A: {cpu_total: 16, memory_total_gb: 16}
-  node-B: {cpu_total: 16, memory_total_gb: 16}
-  node-C: {cpu_total: 16, memory_total_gb: 16}
+  node-B: {cpu_total: 32, memory_total_gb: 32} # Node B is largest
+  node-C: {cpu_total: 8, memory_total_gb: 8}   # Node C is smallest
 
 vms:
-  vm-a: {node: node-A, cpu: 4, memory_gb: 16}
-  vm-b: {node: node-B, cpu: 4, memory_gb: 16}
+  vm-a: {node: node-A, cpu: 4, memory_gb: 16, priority: 3}
+  vm-b: {node: node-B, cpu: 4, memory_gb: 16, priority: 1}
 
 expect:
   feasible: true

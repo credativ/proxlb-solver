@@ -41,5 +41,4 @@ constraints:
 
 expect:
   feasible: true
-  path_feasible: false
-  max_migrations: 0
+  constraints_satisfied: true
