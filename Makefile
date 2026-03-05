@@ -17,7 +17,10 @@ lint:
 	$(FLAKE8) proxlb_solver/ tests/
 
 report:
+	@echo ">>> Generating Standard Solver Report..."
 	$(PYTHON) -m proxlb_solver.cli --markdown results.md --html results.html --junit results.xml
+	@echo ">>> Generating Unified Solver Comparison..."
+	$(PYTHON) scripts/benchmark_unified_solver.py
 
 clean:
-	rm -rf $(VENV) *.egg-info results.xml results.md results.html __pycache__
+	rm -rf $(VENV) *.egg-info results.xml results.md results.html unified_results.html __pycache__

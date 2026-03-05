@@ -155,8 +155,8 @@ def benchmark():
 
     template = Template(HTML_TEMPLATE)
     html = template.render(results=results, total=len(results), std_wins=std_wins, uni_wins=uni_wins, draws=draws)
-    with open(base_dir / "SOLVER_REPORT_EXPERT.html", "w") as f: f.write(html)
-    print(f"\n[!] Expert Report generated: SOLVER_REPORT_EXPERT.html")
+    with open(base_dir / "unified_results.html", "w") as f: f.write(html)
+    print(f"\n[!] Expert Report generated: unified_results.html")
 
 if __name__ == "__main__":
     benchmark()

@@ -19,8 +19,8 @@ def run_test(scenario_path):
     print(f"\n>>> Testing Scenario: {scenario_path.name}")
     cluster = load_scenario(scenario_path)
     
-    # Try with T=6 steps
-    solution, plan = solve_unified(cluster, time_steps=6, time_limit_s=10.0)
+    # solve_unified now handles time steps automatically via Iterative Deepening
+    solution, plan = solve_unified(cluster, time_limit_s=10.0)
     
     if solution.feasible:
         print(f"Status: {solution.stats.status}")

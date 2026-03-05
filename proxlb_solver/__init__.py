@@ -9,6 +9,7 @@ Core types:
 Solver functions:
     solve(cluster, time_limit_s)        — single-shot solve
     solve_reachable(cluster, ...)       — solve with planner feedback loop
+    solve_unified(cluster, ...)         — unified time-expanded SAT solve (prototype)
 
 ProxLB integration:
     from_proxlb_data(proxlb_data, ...)  — convert live ProxLB data to Cluster
@@ -29,6 +30,7 @@ from .models import (
     SolverStats,
 )
 from .solver import solve, solve_reachable
+from .unified_solver import solve_unified
 from .adapter import from_proxlb_data
 from .shadow import run_shadow
 
@@ -47,6 +49,7 @@ __all__ = [
     # Solver
     "solve",
     "solve_reachable",
+    "solve_unified",
     # ProxLB integration
     "from_proxlb_data",
     "run_shadow",
