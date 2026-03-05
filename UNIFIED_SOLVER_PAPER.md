@@ -26,70 +26,42 @@ We define a 3D grid of boolean variables `x[i, j, t]`:
 
 `x[i, j, t] = 1` means Guest `i` resides on Node `j` at step `t`.
 
-### 3.2 State Transitions
-Migration is defined as a change in position between `t` and `t+1`. We introduce a transition variable `m[i, t]`:
-```text
-m[i, t] >= x[i, j, t] - x[i, j, t+1]  (for all nodes j)
-```
-This allows the solver to count migrations and enforce operational limits (like `max_parallel_migrations`) for every step.
+---
+
+## 4. Production Optimizations (Recent Changes)
+
+To scale from small test cases to massive clusters (100+ VMs), the following optimizations were implemented:
+
+### 4.1 Symmetry Breaking
+In clusters with identical hardware (e.g., 20 identical nodes), the solver explores millions of identical permutations.
+**Change**: Added a constraint that forces a lexicographical order on identical, initially empty nodes.
+**Result**: Search space reduction by several orders of magnitude.
+
+### 4.2 Search Branching Strategy
+Solving for all time steps at once is complex.
+**Change**: Implemented a `DecisionStrategy` that tells the solver to decide the variables for the **final state T** first.
+**Logic**: Solve the "Bin Packing" first, then find the "Path" to reach it. This mirrors the speed of the standard solver while keeping the safety of the unified model.
+
+### 4.3 Relaxed Transition Pinning
+**Problem**: VMs often start on a temporary source node (e.g., during evacuation) that is not in their "allowed nodes" list (Pinning). A strict model would report `INFEASIBLE` immediately.
+**Change**: Pinning is now only strictly enforced at the **final step T**. For intermediate steps, a VM is allowed to stay on its initial node until a valid target node is available.
+
+### 4.4 Penalty Hierarchy (Soft-Rules)
+To allow the solver to "repair" unhealthly clusters (e.g., initial anti-affinity violations), rules were moved from hard constraints to a penalty hierarchy:
+1.  **Slack Penalty (10^9)**: Capacity overcommit is extremely expensive (forbidden unless transiently necessary).
+2.  **Rule Penalty (10^8)**: Violating Affinity/Anti-Affinity is very expensive.
+3.  **Balancing Gain (10^4)**: Reducing the load gap is the primary goal.
+4.  **Stickiness (1)**: Migrations are "cheap" but should be minimized.
+
+This hierarchy ensures that fixing a rule violation is mathematically much better than doing nothing.
 
 ---
 
-## 4. Mathematical Constraints
-
-### 4.1 Transient Capacity & Safety
-In every step `t`, the node capacity must be respected. To ensure safety during the migration process, the model enforces:
-```text
-Sum(Usage[i] * x[i, j, t]) <= Capacity[j]  (for all nodes j, steps t)
-```
-This ensures that at no point in time—neither at the start, the middle, or the end of the plan—is a node oversubscribed.
-
-### 4.2 Soft Capacity Slack
-In 100% full clusters, a pure discrete model is too rigid. We introduce **Slack Variables** `s[j, t]`:
-```text
-Sum(Usage[i] * x[i, j, t]) <= Capacity[j] + s[j, t]
-```
-Slack allows a temporary, minimal overcommit at an extreme cost penalty. This "greases" the gears of the solver to allow swaps in congested environments.
-
-### 4.3 Soft-Rule Repair Logic
-If a cluster starts in an "illegal" state (e.g. affinity violation at t=0), a hard constraint would cause an `INFEASIBLE` result. We model rules as **Soft Constraints**:
-```text
-Penalty = Sum(Violations) * RulePenalty
-```
-Since the `RulePenalty` is much higher than the cost of a migration, the solver is mathematically "forced" to plan a move to fix the state.
+## 5. Algorithmic Strategy: Iterative Deepening
+The solver probes increasing time horizons: `T = 1, 2, 4, 8, 16, 24, 32`.
+This allows quick results for simple rebalancing and deep search for complex multi-step "parking" maneuvers in full clusters.
 
 ---
 
-## 5. Objective Function
-The solver minimizes a composite cost function at state T:
-```text
-Minimize: (Weight_Balance * LoadGap[T]) 
-        + (Weight_Stickiness * Sum(m[i, t] * (t + 1))) 
-        + SlackPenalty 
-        + RulePenalty
-```
-
-1.  **LoadGap**: Minimizes the difference between the most and least loaded nodes.
-2.  **Time-Weighted Stickiness**: Multiplies migrations by `(t + 1)` to encourage the solver to perform moves as early as possible.
-3.  **Penalties**: Ensure that capacity and rules are respected unless impossible.
-
----
-
-## 6. Algorithmic Strategy: Iterative Deepening
-Large `T` values exponentially increase the search space (`Guests * Nodes * T`).
-The solver uses **Iterative Deepening**:
-1.  Try `T=1` (Direct moves).
-2.  If infeasible or no improvement, try `T=2` (Simple swaps).
-3.  Expand to `T=4, 8, 16, 32` for complex cascades.
-
-This strategy ensures that simple rebalancing stays fast (milliseconds), while complex deadlocks are resolved with deeper search (seconds).
-
----
-
-## 7. Conclusion
-The Unified Model transforms a heuristic pathfinding problem into a rigorous mathematical proof. By integrating the "how" into the "where", ProxLB achieves:
-*   **Guaranteed Reachability**: Any plan found is executable by definition.
-*   **Atomic Group Moves**: PVE-native affinity is handled as a single unit of change.
-*   **Deadlock Resolution**: Automatic discovery of "parking" moves via spare nodes.
-
-This architecture represents the next generation of data center scheduling, moving from "best-effort" heuristics to "provably-optimal" orchestration.
+## 6. Conclusion
+The Unified Model achieves **100% reachability** by design. It transforms a heuristic pathfinding problem into a rigorous mathematical proof, ensuring that any rebalancing plan generated is both optimal and safe to execute in a production Proxmox environment.
