@@ -26,7 +26,52 @@ import datetime
 import json
 import os
 import traceback
-from typing import Any, IO
+import types
+from typing import Any, IO, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from proxlb.utils.proxlb_data import ProxLbData
+    from proxlb.utils.config_parser import Config
+
+
+# ---------------------------------------------------------------------------
+# Normalisation helpers — accept dict or Pydantic; always return a consistent type
+# ---------------------------------------------------------------------------
+
+def _normalize_solver_cfg(cfg: Any) -> types.SimpleNamespace:
+    """Convert a dict solver_cfg to a SimpleNamespace; pass Pydantic models through."""
+    if isinstance(cfg, dict):
+        return types.SimpleNamespace(
+            mode=cfg.get("mode", "shadow"),
+            log_dir=cfg.get("log_dir", "/var/log/proxlb/solver"),
+            use_reservations=bool(cfg.get("use_reservations", True)),
+            timeout_seconds=float(cfg.get("timeout_seconds", 30.0)),
+            active_step_retries=int(cfg.get("active_step_retries", 3)),
+        )
+    return cfg  # already a Pydantic Config.Solver
+
+
+def _normalize_proxlb_data(proxlb_data: Any) -> dict:
+    """Ensure proxlb_data is a plain dict; normalise Pydantic ProxLbData if needed."""
+    if isinstance(proxlb_data, dict):
+        return proxlb_data
+    from .adapter import _pydantic_to_dict
+    return _pydantic_to_dict(proxlb_data)
+
+
+def _guests_of(proxlb_data: Any) -> dict:
+    return proxlb_data.get("guests", {}) if isinstance(proxlb_data, dict) else proxlb_data.guests
+
+
+def _guest_get(gd: Any, key: str, default: Any = None) -> Any:
+    return gd.get(key, default) if isinstance(gd, dict) else getattr(gd, key, default)
+
+
+def _guest_set(gd: Any, key: str, value: Any) -> None:
+    if isinstance(gd, dict):
+        gd[key] = value
+    else:
+        setattr(gd, key, value)
 
 
 # ---------------------------------------------------------------------------
@@ -53,10 +98,12 @@ def _make_run_file(log_dir: str) -> str:
 # Public API
 # ---------------------------------------------------------------------------
 
-def run_shadow(proxlb_data: dict, solver_cfg: dict) -> tuple:
+def run_shadow(proxlb_data: "dict | ProxLbData", solver_cfg: "dict | Config.Solver") -> tuple:
     """Run solver in shadow mode.
 
-    Writes a structured JSONL file to solver_cfg['log_dir'] and logs one
+    Accepts either plain dicts (standalone/tests) or Pydantic models (ProxLB 2.0).
+
+    Writes a structured JSONL file to solver_cfg.log_dir and logs one
     summary line to the 'proxlb' logger. Never modifies the cluster.
 
     Returns ``(run_file_path, migration_plan)`` where *run_file_path* is the
@@ -67,13 +114,17 @@ def run_shadow(proxlb_data: dict, solver_cfg: dict) -> tuple:
     import logging
     log = logging.getLogger("ProxLB")
 
-    mode              = solver_cfg.get("mode", "shadow")
-    log_dir           = solver_cfg.get("log_dir", "/var/log/proxlb/solver")
-    use_reservations  = bool(solver_cfg.get("use_reservations", True))
-    timeout_seconds   = float(solver_cfg.get("timeout_seconds", 30.0))
-    balanciness       = solver_cfg.get("balanciness", "(from balancing config)")
-    method            = solver_cfg.get("method", "(from balancing config)")
-    max_step_retries  = int(solver_cfg.get("active_step_retries", 3))
+    proxlb_data = _normalize_proxlb_data(proxlb_data)
+    solver_cfg  = _normalize_solver_cfg(solver_cfg)
+
+    mode             = str(solver_cfg.mode)
+    log_dir          = solver_cfg.log_dir
+    use_reservations = solver_cfg.use_reservations
+    timeout_seconds  = solver_cfg.timeout_seconds
+    max_step_retries = solver_cfg.active_step_retries
+    balancing_cfg    = proxlb_data.get("meta", {}).get("balancing", {})
+    balanciness      = balancing_cfg.get("balanciness", 3)
+    method           = balancing_cfg.get("method", "memory")
 
     log.info(
         f"[solver] starting — "
@@ -96,7 +147,7 @@ def run_shadow(proxlb_data: dict, solver_cfg: dict) -> tuple:
     try:
         with open(run_file, "w") as f:
             _plan = _shadow_inner(proxlb_data, solver_cfg, f, log, run_file)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         # Safety net — _shadow_inner handles its own errors; this catches
         # unexpected failures outside that scope (e.g. file write errors).
         log.warning(f"[solver] shadow run failed: {exc}")
@@ -128,7 +179,7 @@ def finalize_run(run_file: str, dry_run: bool = False) -> None:
 
 def _shadow_inner(
     proxlb_data: dict,
-    solver_cfg: dict,
+    solver_cfg: types.SimpleNamespace,
     f: IO,
     log: Any,
     run_file: str,
@@ -143,29 +194,18 @@ def _shadow_inner(
         from .solver import solve
         from .planner import plan_migrations
 
-        use_reservations = bool(solver_cfg.get("use_reservations", True))
-        cluster = from_proxlb_data(proxlb_data, use_reservations=use_reservations)
-
-        # Apply optional config overrides
-        overrides: dict[str, Any] = {}
-        if "balanciness" in solver_cfg:
-            overrides["balanciness"] = int(solver_cfg["balanciness"])
-        if "method" in solver_cfg:
-            overrides["method"] = str(solver_cfg["method"])
-        if overrides:
-            from dataclasses import replace
-            cluster = replace(cluster, balancing=replace(cluster.balancing, **overrides))
+        cluster = from_proxlb_data(proxlb_data, use_reservations=solver_cfg.use_reservations)
 
         # Log all identified constraints before solving so the full rule picture
         # is always visible, even if the solver fails or times out.
         _write_constraints(cluster, f)
 
-        time_limit_s = float(solver_cfg.get("timeout_seconds", 30.0))
+        time_limit_s = solver_cfg.timeout_seconds
         solution = solve(cluster, time_limit_s=time_limit_s)
 
         _write(f, {
             "event": "solver_run",
-            "mode": solver_cfg.get("mode", "shadow"),
+            "mode": str(solver_cfg.mode),
             "status": solution.stats.status,
             "migrations": solution.stats.migration_count,
             "migration_cost_gib": solution.stats.migration_cost_gib,
@@ -238,24 +278,19 @@ def _write_proxlb_plan(proxlb_data: dict, f: IO) -> None:
             })
 
 
-def _write_cluster_state(proxlb_data: dict, solver_cfg: dict, f: IO) -> None:
+def _write_cluster_state(proxlb_data: dict, solver_cfg: types.SimpleNamespace, f: IO) -> None:
     """Emit a ``cluster_state`` snapshot used for before/after load reporting.
 
     Captures per-node memory and CPU totals plus the current VM placement so
     the reporter can compute the projected load after applying the solver plan.
     """
-    meta         = proxlb_data.get("meta", {})
-    # Handle new Pydantic-based meta structure
-    balancing_cfg = meta.get("balancing", {}) if isinstance(meta, dict) else getattr(meta, "balancing", {})
-    if isinstance(balancing_cfg, dict):
-        method = solver_cfg.get("method") or balancing_cfg.get("method", "memory")
-    else:
-        method = solver_cfg.get("method") or getattr(balancing_cfg, "method", "memory")
+    balancing_cfg = proxlb_data.get("meta", {}).get("balancing", {})
+    method = balancing_cfg.get("method", "memory")
 
     nodes: dict = {}
     for name, nd in proxlb_data.get("nodes", {}).items():
-        def _nd_val(key, subkey=None, default=0):
-            val = nd.get(key)
+        def _nd_val(key, subkey=None, default=0, _nd=nd):
+            val = _nd.get(key)
             if subkey and isinstance(val, dict):
                 return val.get(subkey, default)
             return val if val is not None else default
@@ -271,8 +306,8 @@ def _write_cluster_state(proxlb_data: dict, solver_cfg: dict, f: IO) -> None:
 
     guests: dict = {}
     for name, gd in proxlb_data.get("guests", {}).items():
-        def _gd_val(key, subkey=None, default=0):
-            val = gd.get(key)
+        def _gd_val(key, subkey=None, default=0, _gd=gd):
+            val = _gd.get(key)
             if subkey and isinstance(val, dict):
                 return val.get(subkey, default)
             return val if val is not None else default
@@ -282,11 +317,9 @@ def _write_cluster_state(proxlb_data: dict, solver_cfg: dict, f: IO) -> None:
             "memory": _gd_val("memory_total", default=_gd_val("memory", "total")),
             "cpu":    _gd_val("cpu_total", default=_gd_val("cpu", "total", default=1)),
         }
-        # Actual balloon/RSS usage
         mem_used = _gd_val("memory_used", default=_gd_val("memory", "used"))
         if mem_used > 0:
             entry["memory_used"] = mem_used
-        # Actual CPU load
         cpu_used = _gd_val("cpu_used", default=_gd_val("cpu", "used"))
         if cpu_used > 0:
             entry["cpu_usage"] = cpu_used
@@ -356,13 +389,14 @@ def _write_constraints(cluster: Any, f: IO) -> None:
         })
 
 
-def _write_comparison(proxlb_data: dict, solution: Any, f: IO) -> None:
+def _write_comparison(proxlb_data: Any, solution: Any, f: IO) -> None:
     """Compare solver plan with ProxLB decisions, write one JSONL line per VM."""
     solver_plan = {m.vm: m.target for m in solution.migrations}
+    guests = _guests_of(proxlb_data)
     proxlb_plan = {
-        name: gd["node_target"]
-        for name, gd in proxlb_data.get("guests", {}).items()
-        if gd.get("node_target") and gd["node_target"] != gd.get("node_current")
+        name: _guest_get(gd, "node_target")
+        for name, gd in guests.items()
+        if _guest_get(gd, "node_target") and _guest_get(gd, "node_target") != _guest_get(gd, "node_current")
     }
     all_vms = set(solver_plan) | set(proxlb_plan)
     for vm in sorted(all_vms):
@@ -371,13 +405,13 @@ def _write_comparison(proxlb_data: dict, solution: Any, f: IO) -> None:
             _write(f, {"event": "compare", "vm": vm, "result": "agree", "target": sv})
         elif sv and pv:
             _write(f, {"event": "compare", "vm": vm, "result": "differ",
-                        "solver_target": sv, "proxlb_target": pv})
+                       "solver_target": sv, "proxlb_target": pv})
         elif sv:
             _write(f, {"event": "compare", "vm": vm, "result": "solver_only",
-                        "solver_target": sv})
+                       "solver_target": sv})
         else:
             _write(f, {"event": "compare", "vm": vm, "result": "proxlb_only",
-                        "proxlb_target": pv})
+                       "proxlb_target": pv})
 
 
 # ---------------------------------------------------------------------------
@@ -464,25 +498,24 @@ def _verify_step(proxmox_api: Any, step_migrations: dict) -> dict:
 
 def _execute_single_step(
     proxmox_api: Any,
-    proxlb_data: dict,
+    proxlb_data: Any,
     step: Any,
-    guests: dict,
+    guests: Any,
     run_file: str | None,
     step_retry: int = 0,
 ) -> set:
     """Execute one MigrationStep via ProxLB Balancing; return failed VM names.
 
     Steps:
-      1. Clears all ``node_target`` values in *guests*, then sets only the
+      1. Freezes all guests (node_target = node_current), then sets only the
          targets for VMs in this step.
       2. Calls ``Balancing()`` to trigger the actual migrations.  If Balancing
          raises, every VM in the step is recorded as failed immediately
-         (no verification attempted — cluster state is unknown).
+         (no verification attempted — cluster state after a partial failure
+         cannot be trusted).
       3. Verifies actual VM placement via the PVE cluster API.
       4. Updates ``node_current`` for VMs that reached their expected node.
-      5. Appends an ``active_step_result`` event for every VM with full detail:
-         step_retry, step number, vm name, expected node, actual node,
-         success flag, and (on Balancing exception) the error message.
+      5. Appends an ``active_step_result`` event for every VM with full detail.
 
     Returns the set of VM names that did *not* reach their expected node.
     """
@@ -492,12 +525,12 @@ def _execute_single_step(
     # Balancing() skips them (it only migrates when node_current != node_target).
     # We then override only the VMs belonging to this step.
     for gd in guests.values():
-        gd["node_target"] = gd.get("node_current")
+        _guest_set(gd, "node_target", _guest_get(gd, "node_current"))
 
     step_migrations: dict = {}
     for m in step.migrations:
         if m.vm in guests:
-            guests[m.vm]["node_target"] = m.target
+            _guest_set(guests[m.vm], "node_target", m.target)
             step_migrations[m.vm] = m.target
 
     if not step_migrations:
@@ -530,7 +563,7 @@ def _execute_single_step(
         success = actual == expected
 
         if success and vm_name in guests:
-            guests[vm_name]["node_current"] = expected
+            _guest_set(guests[vm_name], "node_current", expected)
 
         _append_run_event(run_file, {
             "event": "active_step_result",
@@ -550,9 +583,9 @@ def _execute_single_step(
 
 def execute_solver_plan(
     proxmox_api: Any,
-    proxlb_data: dict,
+    proxlb_data: Any,
     initial_plan: Any,
-    solver_cfg: dict,
+    solver_cfg: Any,
     run_file: str | None = None,
 ) -> None:
     """Execute the solver's plan via ProxLB Balancing, with per-step re-solve.
@@ -573,25 +606,22 @@ def execute_solver_plan(
 
     After the loop, PVE-deferred / unbreakable-cycle / pinned VMs have their
     original ProxLB ``node_target`` restored so PVE HA can handle them.
-
-    Config keys read from *solver_cfg*:
-      active_step_retries  — max re-solve attempts (default: 3)
-      use_reservations     — passed through to from_proxlb_data
-      timeout_seconds      — CP-SAT time limit per solve
     """
     import logging
     from proxlb.models.balancing import Balancing as _Balancing  # late import
 
     log = logging.getLogger("ProxLB")
 
-    max_step_retries = int(solver_cfg.get("active_step_retries", 3))
-    use_res          = bool(solver_cfg.get("use_reservations", True))
-    time_limit       = float(solver_cfg.get("timeout_seconds", 30.0))
+    solver_cfg = _normalize_solver_cfg(solver_cfg)
+
+    max_step_retries = solver_cfg.active_step_retries
+    use_res          = solver_cfg.use_reservations
+    time_limit       = solver_cfg.timeout_seconds
 
     plan   = initial_plan
     pinned: set = set()
-    guests = proxlb_data.get("guests", {})
-    orig_targets = {n: gd.get("node_target") for n, gd in guests.items()}
+    guests = _guests_of(proxlb_data)
+    orig_targets = {n: _guest_get(gd, "node_target") for n, gd in guests.items()}
 
     n_steps = len(plan.steps)
     n_vms   = sum(len(s.migrations) for s in plan.steps)
@@ -698,9 +728,10 @@ def execute_solver_plan(
     remainder = set(plan.pve_deferred) | set(plan.unbreakable_cycle) | pinned
     for vm_name in remainder:
         if vm_name in guests:
-            guests[vm_name]["node_target"] = orig_targets.get(vm_name)
+            orig = orig_targets.get(vm_name, _guest_get(guests[vm_name], "node_current"))
+            _guest_set(guests[vm_name], "node_target", orig)
     if any(
-        guests[n].get("node_target") != guests[n].get("node_current")
+        _guest_get(guests[n], "node_target") != _guest_get(guests[n], "node_current")
         for n in remainder if n in guests
     ):
         log.info(f"[solver] active: handing {len(remainder)} remainder VM(s) to ProxLB Balancing")
