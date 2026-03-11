@@ -1,0 +1,82 @@
+name: "Everyday Cluster Drift — Moderate Rebalancing Kicks In"
+description: >
+  I manage infrastructure for a regional web hosting company with a mixed
+  three-node Proxmox cluster. We use the default balanciness=3 (Moderate)
+  — I want the solver to proactively rebalance when the imbalance is
+  meaningful, but I don't want VMs constantly shuffling around for tiny
+  improvements. Level 3 triggers at a 15pp gap or larger.
+
+  After a busy deployment week, pve-web (the node running customer web VMs)
+  has been steadily filling up while pve-infra (internal services) is barely
+  utilized. Monday morning the gap between the most and least loaded node is
+  37.5pp — well above the 15pp threshold.
+
+  I'd expect the solver to migrate one or two VMs from pve-web or pve-app
+  to pve-infra. Not a full reshuffling — just enough to bring the cluster
+  into a reasonable balance. I accept that the result won't be mathematically
+  perfect; the stickiness weight at level 3 (equal to balance weight) keeps
+  unnecessary migrations to a minimum.
+
+  Expected outcome: spread is measurably improved, migrations are moderate.
+
+balancing:
+  method: memory
+  balanciness: 3
+  cpu_overcommit: 2.0
+
+nodes:
+  pve-web:
+    cpu_total: 32
+    memory_total_gb: 64
+  pve-app:
+    cpu_total: 32
+    memory_total_gb: 64
+  pve-infra:
+    cpu_total: 32
+    memory_total_gb: 64
+
+vms:
+  # pve-web: 32 GB used (50%) — customer-facing web tier
+  web-customer-01:
+    node: pve-web
+    cpu: 2
+    memory_gb: 8
+    type: vm
+  web-customer-02:
+    node: pve-web
+    cpu: 2
+    memory_gb: 8
+    type: vm
+  app-api:
+    node: pve-web
+    cpu: 4
+    memory_gb: 16
+    type: vm
+
+  # pve-app: 32 GB used (50%) — application tier
+  db-primary:
+    node: pve-app
+    cpu: 8
+    memory_gb: 32
+    type: vm
+
+  # pve-infra: 8 GB used (12.5%) — internal services, underutilized
+  monitoring:
+    node: pve-infra
+    cpu: 2
+    memory_gb: 4
+    type: vm
+  logging:
+    node: pve-infra
+    cpu: 2
+    memory_gb: 4
+    type: vm
+
+# Load gap: 50% - 12.5% = 37.5% (0.375).
+# balanciness=3 threshold is 0.15. Gap exceeds threshold → rebalancing.
+# Total: 72 GB across 192 GB (3 nodes) → target ~24 GB (37.5%) per node.
+# pve-infra needs to grow from 8 GB toward 24 GB.
+expect:
+  feasible: true
+  constraints_satisfied: true
+  spread_improved: true

@@ -1,0 +1,86 @@
+name: "Long Cycle — Spare Node Too Small to Break Deadlock"
+description: >
+  Five VMs on two full nodes (node-0 and node-1) must swap sides via strict
+  pin constraints. The only spare capacity is node-spare (2 GB total). vm-0
+  is 3 GB and cannot park on node-spare, so each cycle-breaking attempt
+  consumes spare capacity (1 GB per parking move) until node-spare is full
+  and the remaining cycle {vm-0, vm-3, vm-4} cannot be resolved.
+  The solver finds a valid target placement, but no executable migration
+  sequence exists — path_feasible must be false.
+
+balancing:
+  method: memory
+  balanciness: 5
+  cpu_overcommit: 1
+
+nodes:
+  node-spare-init:
+    cpu_total: 2
+    memory_total_gb: 2
+  node-0:
+    cpu_total: 4
+    memory_total_gb: 4
+  node-1:
+    cpu_total: 4
+    memory_total_gb: 4
+  node-spare:
+    cpu_total: 2
+    memory_total_gb: 2
+
+vms:
+  vm-0:
+    node: node-1
+    cpu: 3
+    memory_gb: 3
+    type: vm
+  vm-1:
+    node: node-0
+    cpu: 1
+    memory_gb: 1
+    type: vm
+  vm-2:
+    node: node-0
+    cpu: 1
+    memory_gb: 1
+    type: vm
+  vm-3:
+    node: node-1
+    cpu: 1
+    memory_gb: 1
+    type: vm
+  vm-4:
+    node: node-0
+    cpu: 2
+    memory_gb: 2
+    type: vm
+  vm-spare:
+    node: node-spare-init
+    cpu: 2
+    memory_gb: 2
+    type: vm
+
+constraints:
+  pin:
+    - vm: vm-0
+      nodes: [node-0, node-spare]
+      strict: true
+    - vm: vm-1
+      nodes: [node-1, node-spare]
+      strict: true
+    - vm: vm-2
+      nodes: [node-1, node-spare]
+      strict: true
+    - vm: vm-3
+      nodes: [node-0, node-spare]
+      strict: true
+    - vm: vm-4
+      nodes: [node-1, node-spare]
+      strict: true
+    - vm: vm-spare
+      nodes: [node-spare]
+      strict: true
+
+expect:
+  feasible: true
+  constraints_satisfied: true
+  path_feasible: false

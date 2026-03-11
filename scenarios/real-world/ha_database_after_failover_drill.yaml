@@ -1,0 +1,92 @@
+name: "HA Database — Anti-Affinity Violated After Failover Drill"
+description: >
+  Our PostgreSQL setup runs a primary (db-primary) and a hot standby replica
+  (db-replica) for read scaling and failover. I've configured hard anti-affinity
+  between these two VMs: the whole point of the replica is that if pve-hv01
+  goes down, db-replica keeps serving reads from a surviving node.
+
+  Last Tuesday during a planned failover drill, db-replica was stopped and
+  restarted. Proxmox restarted it on pve-hv01 — the same node as db-primary
+  — because that node happened to have the most free RAM at that moment.
+  The anti-affinity rule was not enforced at VM boot (it's a ProxLB rule,
+  not a native PVE HA rule), so both database VMs are now colocated.
+
+  This is a HA contract violation. If pve-hv01 goes down right now, we lose
+  both the primary and the replica simultaneously. The solver must detect this
+  and migrate db-replica to a different node before our next production event.
+  The exact target node doesn't matter — either pve-hv02 or pve-hv03 has
+  enough capacity.
+
+  Expected outcome: db-primary and db-replica end up on different nodes.
+  The anti-affinity constraint is satisfied.
+
+balancing:
+  method: memory
+  balanciness: 5
+  cpu_overcommit: 2.0
+
+nodes:
+  pve-hv01:
+    cpu_total: 48
+    memory_total_gb: 256
+  pve-hv02:
+    cpu_total: 48
+    memory_total_gb: 256
+  pve-hv03:
+    cpu_total: 48
+    memory_total_gb: 256
+
+vms:
+  # pve-hv01: 208 GB used (81%) — both DB VMs colocated here after failover drill
+  db-primary:
+    node: pve-hv01
+    cpu: 16
+    memory_gb: 96
+    type: vm
+  db-replica:            # Should NOT be on the same node as db-primary
+    node: pve-hv01
+    cpu: 16
+    memory_gb: 96
+    type: vm
+  web-frontend:
+    node: pve-hv01
+    cpu: 4
+    memory_gb: 16
+    type: vm
+
+  # pve-hv02: 64 GB used (25%)
+  app-backend-01:
+    node: pve-hv02
+    cpu: 8
+    memory_gb: 32
+    type: vm
+  app-backend-02:
+    node: pve-hv02
+    cpu: 8
+    memory_gb: 32
+    type: vm
+
+  # pve-hv03: 24 GB used (9.4%) — plenty of room for db-replica (96 GB)
+  monitoring:
+    node: pve-hv03
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  logging:
+    node: pve-hv03
+    cpu: 2
+    memory_gb: 8
+    type: vm
+
+constraints:
+  anti_affinity:
+    - name: db-ha-separation
+      vms: [db-primary, db-replica]
+
+# db-replica (96 GB) must be moved off pve-hv01.
+# pve-hv02 has 192 GB free → fits. pve-hv03 has 232 GB free → fits.
+# The solver will pick whichever gives better overall balance.
+expect:
+  feasible: true
+  constraints_satisfied: true
+  spread_improved: true
