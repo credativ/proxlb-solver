@@ -363,6 +363,50 @@ def _fmt_gap(initial: float, final: float) -> str:
     return f"{initial*100:.1f}% → {final*100:.1f}%"
 
 
+_BALANCINESS_GAP_THRESHOLDS = {1: 1.0, 2: 0.25, 3: 0.15, 4: 0.05, 5: 0.0}
+_BALANCINESS_LABELS = {1: "Conservative", 2: "Relaxed", 3: "Moderate", 4: "High", 5: "Aggressive"}
+
+
+def _fmt_trigger(cluster: Cluster, initial_gap: float) -> str:
+    """Return an HTML string explaining why rebalancing was triggered or suppressed."""
+    bal = cluster.balancing
+    level = max(1, min(5, bal.balanciness))
+    label = _BALANCINESS_LABELS.get(level, str(level))
+    gap_threshold = _BALANCINESS_GAP_THRESHOLDS.get(level, 1.0)
+
+    # balanciness=1 always suppresses voluntary migrations
+    if level == 1:
+        return (f'<span class="trigger-off">Off</span> '
+                f'(balanciness={level} {label}: voluntary migrations disabled)')
+
+    gap_pct = initial_gap * 100
+    thr_pct = gap_threshold * 100
+
+    # Check memory_threshold gate
+    if bal.memory_threshold is not None:
+        peak_mem_pct = 0.0
+        for node in cluster.nodes:
+            if node.maintenance:
+                continue
+            used = sum(vm.memory for vm in cluster.vms if vm.node == node.name)
+            if node.memory_total > 0:
+                pct = (used / node.memory_total) * 100
+                peak_mem_pct = max(peak_mem_pct, pct)
+        if peak_mem_pct <= bal.memory_threshold:
+            return (f'<span class="trigger-gate">Gated</span> '
+                    f'(gap {gap_pct:.1f}% vs {thr_pct:.0f}% threshold; '
+                    f'memory_threshold={bal.memory_threshold:.0f}% not reached, '
+                    f'peak={peak_mem_pct:.1f}%)')
+
+    if initial_gap < gap_threshold:
+        return (f'<span class="trigger-off">Suppressed</span> '
+                f'(gap {gap_pct:.1f}% &lt; threshold {thr_pct:.0f}% at '
+                f'balanciness={level} {label})')
+    return (f'<span class="trigger-ok">Active</span> '
+            f'(gap {gap_pct:.1f}% &gt; threshold {thr_pct:.0f}% at '
+            f'balanciness={level} {label})')
+
+
 def _node_load_pct(cluster: Cluster, node: Node, placements: Dict[str, str]) -> float:
     """Compute load percentage for a node given placements."""
     vm_map = {v.name: v for v in cluster.vms}
@@ -643,6 +687,12 @@ tr:hover { background: var(--hover); }
 .tag-fail { background: #fee2e2; color: #b91c1c; }
 .tag-info { background: #dbeafe; color: #1e40af; }
 .meta { color: var(--meta); font-size: 12px; }
+.description { font-size: 14px; line-height: 1.6; color: var(--fg); background: #f8fafc;
+               border-left: 3px solid var(--accent); padding: 10px 14px; margin: 8px 0 12px;
+               border-radius: 0 6px 6px 0; white-space: pre-wrap; }
+.trigger-ok { color: var(--ok); font-weight: 600; }
+.trigger-off { color: var(--meta); font-weight: 600; }
+.trigger-gate { color: var(--warn); font-weight: 600; }
 details.nav-group summary { list-style: none; display: flex; align-items: center;
     justify-content: space-between; padding: 6px 16px; cursor: pointer;
     color: var(--meta); font-size: 11px; text-transform: uppercase; letter-spacing: .5px;
@@ -752,7 +802,7 @@ a:hover { text-decoration: underline; }
         h.append(f'<div class="card" id="{slug}">')
         h.append(f'<h3>{cluster.name} {_html_badge(ok)}</h3>')
         if cluster.description:
-            h.append(f'<p class="meta">{cluster.description}</p>')
+            h.append(f'<div class="description">{cluster.description}</div>')
         status_cls = "ok" if solution.stats.status in ("OPTIMAL", "FEASIBLE") else "err"
         meta_items = [
             ("Method",      f'<code>{cluster.balancing.method}</code>'),
@@ -764,6 +814,7 @@ a:hover { text-decoration: underline; }
             _i = _initial_load_gap(cluster)
             _f = _compute_load_gap(cluster, solution.placements)
             meta_items.append(("Load Gap", _fmt_gap(_i, _f)))
+            meta_items.append(("Trigger", _fmt_trigger(cluster, _i)))
         if solution.reachability_attempts > 1:
             outcome = "resolved" if solution.path_feasible else "FAILED"
             meta_items.append(("Reachability",

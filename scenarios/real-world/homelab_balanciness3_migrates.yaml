@@ -1,0 +1,77 @@
+name: "Homelab — Same Weekend Drift, balanciness=3 Does Migrate"
+description: >
+  This is the same two-node homelab as in "Homelab — Small Weekend Drift Not
+  Worth Migrating", but with balanciness=3 (Moderate) instead of balanciness=2
+  (Relaxed).
+
+  The hardware, VMs, and current load are completely unchanged: hv-home-01 at
+  around 22% and hv-home-02 at 12%. The effective weighted gap is still 18.75%.
+
+  At balanciness=2, that gap fell below the 25pp trigger threshold — nothing
+  happened. At balanciness=3, the threshold drops to 15pp. Now 18.75% exceeds
+  the trigger, and the solver will actually migrate something.
+
+  Whether this is the right call is a matter of taste. Some admins prefer the
+  more cautious balanciness=2 ("don't wake me up for a 10-point drift"). Others
+  would rather keep things tighter and accept the occasional live migration.
+  This scenario shows what balanciness=3 decides to do with the same cluster.
+
+  Expected outcome: at least one VM migrates from hv-home-01 to hv-home-02,
+  reducing the imbalance.
+
+balancing:
+  method: memory
+  balanciness: 3    # threshold: 15pp — 18.75% effective gap exceeds this
+  cpu_overcommit: 2.0
+
+nodes:
+  hv-home-01:
+    cpu_total: 16   # Ryzen 5 5600X
+    memory_total_gb: 64
+  hv-home-02:
+    cpu_total: 8    # Core i7-8700
+    memory_total_gb: 64
+
+vms:
+  # hv-home-01: 14 GB used (21.9%)
+  nextcloud:
+    node: hv-home-01
+    cpu: 4
+    memory_gb: 12
+    type: vm
+  jellyfin:
+    node: hv-home-01
+    cpu: 4
+    memory_gb: 2
+    type: vm
+
+  # hv-home-02: 8 GB used (12.5%)
+  homeassistant:
+    node: hv-home-02
+    cpu: 2
+    memory_gb: 2
+    type: vm
+  pihole:
+    node: hv-home-02
+    cpu: 1
+    memory_gb: 1
+    type: ct
+  vaultwarden:
+    node: hv-home-02
+    cpu: 1
+    memory_gb: 1
+    type: ct
+  gitea:
+    node: hv-home-02
+    cpu: 2
+    memory_gb: 4
+    type: vm
+
+# Raw gap: 21.9% - 12.5% = 9.4pp.
+# Effective weighted gap (priority=2): 18.75%.
+# balanciness=3 threshold is 15%. Since 18.75% > 15%, rebalancing is triggered.
+# Compare with homelab_small_drift_tolerated.yaml — only balanciness=2 → 3 changes.
+expect:
+  feasible: true
+  constraints_satisfied: true
+  spread_improved: true

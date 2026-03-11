@@ -1,0 +1,83 @@
+name: "Production DB Cluster — Stability Over Balance"
+description: >
+  I'm the lead infrastructure admin at a mid-sized fintech company. We run our
+  production PostgreSQL cluster on three dual-socket servers (pve-hv01 through
+  pve-hv03). Six months ago, an unplanned live migration of db-primary during
+  peak trading hours caused a 90-second connection interruption that triggered
+  our SLA alerts.
+
+  Since then I've set balanciness=1 on all production clusters. With this
+  setting, the solver never voluntarily moves VMs — only mandatory migrations
+  (maintenance mode, hard constraint violations) are permitted. I'm fully aware
+  that pve-hv03 is sitting below 10% while pve-hv01 is at 50%. I accept that
+  imbalance. The cost of a live migration gone wrong far outweighs the benefit
+  of perfect load distribution. Rebalancing happens during our Saturday 2am
+  maintenance window, manually and with a human watching the dashboards.
+
+  Expected outcome: zero migrations, regardless of the load gap.
+
+balancing:
+  method: memory
+  balanciness: 1
+  cpu_overcommit: 2.0
+
+nodes:
+  pve-hv01:
+    cpu_total: 48   # 2× AMD EPYC 7302 (16c each)
+    memory_total_gb: 256
+  pve-hv02:
+    cpu_total: 48
+    memory_total_gb: 256
+  pve-hv03:
+    cpu_total: 48
+    memory_total_gb: 256
+
+vms:
+  # pve-hv01: 128 GB used (50%)
+  db-primary:
+    node: pve-hv01
+    cpu: 16
+    memory_gb: 80
+    type: vm
+  erp-backend:
+    node: pve-hv01
+    cpu: 8
+    memory_gb: 48
+    type: vm
+
+  # pve-hv02: 112 GB used (43.75%)
+  db-replica:
+    node: pve-hv02
+    cpu: 16
+    memory_gb: 80
+    type: vm
+  web-frontend-01:
+    node: pve-hv02
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  web-frontend-02:
+    node: pve-hv02
+    cpu: 4
+    memory_gb: 16
+    type: vm
+
+  # pve-hv03: 24 GB used (9.4%) — lightly loaded but admin doesn't care
+  monitoring-stack:
+    node: pve-hv03
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  logging-stack:
+    node: pve-hv03
+    cpu: 2
+    memory_gb: 8
+    type: vm
+
+# Load gap: 50% - 9.4% = 40.6%.
+# With balanciness=1, weight_balance=0 regardless of gap size.
+# No voluntary migration will occur.
+expect:
+  feasible: true
+  constraints_satisfied: true
+  max_migrations: 0
