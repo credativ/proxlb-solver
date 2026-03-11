@@ -1,25 +1,23 @@
-name: "CPU PSI Balancing — Contention based"
+name: "CPU PSI Balancing — Contention Spread"
 description: >
-  Cluster with 3 VMs. Node-A has high pressure (sum 20%), Node-B is idle.
-  The solver should move the high-pressure VM to Node-B to equalize contention.
+  Cluster with 4 VMs. CPU usage is low (10%) for all, but two VMs have high PSI (50%)
+  due to resource contention. Both are on node-A. Solver should move one to node-B.
 
 balancing:
   method: cpu_psi
   balanciness: 5
-  w_stickiness: 0
 
 nodes:
-  node-A: {cpu_total: 10, memory_total_gb: 64, cpu_pressure: 20.0}
-  node-B: {cpu_total: 10, memory_total_gb: 64, cpu_pressure: 0.0}
+  node-A: {cpu_total: 16, memory_total_gb: 64}
+  node-B: {cpu_total: 16, memory_total_gb: 64}
 
 vms:
-  vm-1: {node: node-A, cpu: 1, memory_gb: 4, cpu_pressure: 15.0} # Stalling VM
-  vm-2: {node: node-A, cpu: 1, memory_gb: 4, cpu_pressure: 5.0}
-  vm-3: {node: node-B, cpu: 1, memory_gb: 4, cpu_pressure: 0.0}
+  vm-1: {node: node-A, cpu: 2, memory_gb: 4, cpu_usage: 0.2, cpu_pressure: 50.0}
+  vm-2: {node: node-A, cpu: 2, memory_gb: 4, cpu_usage: 0.2, cpu_pressure: 50.0}
+  vm-3: {node: node-B, cpu: 2, memory_gb: 4, cpu_usage: 0.2, cpu_pressure: 0.0}
+  vm-4: {node: node-B, cpu: 2, memory_gb: 4, cpu_usage: 0.2, cpu_pressure: 0.0}
 
 expect:
   feasible: true
   spread_improved: true
   max_migrations: 1
-  placements:
-    vm-1: node-B

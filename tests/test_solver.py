@@ -105,14 +105,14 @@ def test_scenario(scenario_path: Path):
                     f"RAM overflow on {node_name}: "
                     f"{used} > {cap} (Total: {node.memory_total}, Res: {node.memory_reserve})"
                 )
-        
+
         # Verify storage capacity
         storage_usage = defaultdict(lambda: defaultdict(int)) # node -> {storage -> bytes}
         for vm_name, target in solution.placements.items():
             vm = next(v for v in cluster.vms if v.name == vm_name)
             for sname, sbytes in vm.disks.items():
                 storage_usage[target][sname] += sbytes
-        
+
         for node_name, usages in storage_usage.items():
             node = node_map[node_name]
             for sname, sbytes in usages.items():
@@ -123,13 +123,13 @@ def test_scenario(scenario_path: Path):
                         f"Storage '{sname}' overflow on {node_name}: "
                         f"{sbytes} > {cap}"
                     )
-        
+
         # Verify CPU capacity
         cpu_usage_vcpus = defaultdict(int)
         for vm_name, target in solution.placements.items():
             vm = next(v for v in cluster.vms if v.name == vm_name)
             cpu_usage_vcpus[target] += vm.cpu
-        
+
         for node_name, used_vcpus in cpu_usage_vcpus.items():
             node = node_map[node_name]
             # usable_cores = (total - reserve) * overcommit

@@ -1,6 +1,6 @@
 name: "CPU Rebalance — Affinity Group"
 description: >
-  Rebalancing a cluster by CPU load. 
+  Rebalancing a cluster by CPU load.
   Initial: Node-A has 3 VMs (4.0 load each) = 12.0 (75%). Node-B is empty.
   Moving vm-a3 results in A=8.0 (50%) and B=4.0 (25%). Gap 25% < 75%.
 

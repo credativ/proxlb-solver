@@ -1,0 +1,111 @@
+name: "New Node Onboarding — Fill the Fresh Server"
+description: >
+  I'm the infrastructure admin at a 10-person startup. Our production stack
+  runs on three Proxmox nodes that have slowly filled up over six months of
+  growth. All three are now sitting at around 62% RAM utilization — acceptable,
+  but we're losing headroom fast.
+
+  We just racked and configured pve-04, identical in hardware to the existing
+  nodes. It's completely empty. I want the solver to actively redistribute VMs
+  to the new node rather than waiting for a perfect opportunity to present
+  itself. That's why I use balanciness=4 (High) — it has a low trigger
+  threshold (5pp gap) and strongly prefers spreading load.
+
+  After balancing I expect pve-04 to be holding a meaningful share of the
+  workload and all four nodes to be roughly at 47% utilization (240 GB total
+  across 4×128 GB nodes). Concretely: the cluster spread should be
+  significantly better than before.
+
+  Expected outcome: multiple migrations to pve-04, spread clearly improved.
+
+balancing:
+  method: memory
+  balanciness: 4
+  cpu_overcommit: 2.0
+
+nodes:
+  pve-01:
+    cpu_total: 32   # Intel Xeon E-2388G
+    memory_total_gb: 128
+  pve-02:
+    cpu_total: 32
+    memory_total_gb: 128
+  pve-03:
+    cpu_total: 32
+    memory_total_gb: 128
+  pve-04:                # New node — freshly provisioned, empty
+    cpu_total: 32
+    memory_total_gb: 128
+
+vms:
+  # pve-01: 80 GB used (62.5%)
+  web-prod-01:
+    node: pve-01
+    cpu: 2
+    memory_gb: 8
+    type: vm
+  web-prod-02:
+    node: pve-01
+    cpu: 2
+    memory_gb: 8
+    type: vm
+  app-backend-01:
+    node: pve-01
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  db-primary:
+    node: pve-01
+    cpu: 8
+    memory_gb: 48
+    type: vm
+
+  # pve-02: 80 GB used (62.5%)
+  web-prod-03:
+    node: pve-02
+    cpu: 2
+    memory_gb: 8
+    type: vm
+  web-prod-04:
+    node: pve-02
+    cpu: 2
+    memory_gb: 8
+    type: vm
+  app-backend-02:
+    node: pve-02
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  db-replica:
+    node: pve-02
+    cpu: 8
+    memory_gb: 48
+    type: vm
+
+  # pve-03: 80 GB used (62.5%)
+  ci-runner-01:
+    node: pve-03
+    cpu: 4
+    memory_gb: 32
+    type: vm
+  ci-runner-02:
+    node: pve-03
+    cpu: 4
+    memory_gb: 32
+    type: vm
+  monitoring:
+    node: pve-03
+    cpu: 2
+    memory_gb: 16
+    type: vm
+
+  # pve-04: 0 GB used (0%) — new, empty node
+
+# Load gap: 62.5% - 0% = 62.5% (0.625).
+# balanciness=4 threshold is 0.05. Gap far exceeds threshold.
+# Total: 240 GB across 512 GB (4 nodes) → target ~60 GB (47%) per node.
+# Several VMs should migrate to pve-04.
+expect:
+  feasible: true
+  constraints_satisfied: true
+  spread_improved: true

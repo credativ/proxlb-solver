@@ -1,0 +1,22 @@
+name: "CPU Threshold — Suppress balancing"
+description: >
+  Node-A is only 40% full (2 VMs * 20%).
+  CPU threshold is set to 80%.
+  Solver should NOT move anything.
+
+balancing:
+  method: cpu
+  cpu_threshold: 80
+  balanciness: 5
+
+nodes:
+  node-A: {cpu_total: 16, memory_total_gb: 64}
+  node-B: {cpu_total: 16, memory_total_gb: 64}
+
+vms:
+  vm-1: {node: node-A, cpu: 4, memory_gb: 4, cpu_usage: 3.2} # 3.2/16 = 20%
+  vm-2: {node: node-A, cpu: 4, memory_gb: 4, cpu_usage: 3.2} # 3.2/16 = 20%
+
+expect:
+  feasible: true
+  max_migrations: 0

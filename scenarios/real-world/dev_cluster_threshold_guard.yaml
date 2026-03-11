@@ -1,0 +1,85 @@
+name: "Dev/Staging Cluster — Threshold Guards Against Unnecessary Churn"
+description: >
+  We run our development, staging, and QA environments on a separate
+  three-node cluster, deliberately isolated from production. This cluster
+  typically runs at 20–40% utilization — we deliberately overprovision it so
+  developers always have headroom and can spin up new environments quickly.
+
+  I've configured balanciness=5 (Aggressive) so that IF utilization ever gets
+  tight, the solver responds quickly. But I've also set memory_threshold=60:
+  the solver must not initiate any migrations unless at least one node exceeds
+  60% memory utilization.
+
+  Right now pve-dev-02 is the most-loaded node at 37.5%. Nobody is above 60%.
+  There's no operational reason to migrate a dev environment VM when every
+  node has plenty of headroom. Live migrations consume network bandwidth, cause
+  brief IO spikes, and can interrupt a developer's SSH session at exactly the
+  wrong moment.
+
+  The threshold acts as a circuit breaker: "only bother me when things are
+  actually getting tight." Today they aren't.
+
+  Expected outcome: zero migrations. The threshold gate blocks all rebalancing
+  even though balanciness=5 would normally be very aggressive.
+
+balancing:
+  method: memory
+  balanciness: 5        # Aggressive — but gated by the threshold below
+  memory_threshold: 60  # No migrations unless a node exceeds 60% RAM usage
+  cpu_overcommit: 2.0
+
+nodes:
+  pve-dev-01:
+    cpu_total: 16
+    memory_total_gb: 128
+  pve-dev-02:
+    cpu_total: 16
+    memory_total_gb: 128
+  pve-dev-03:
+    cpu_total: 16
+    memory_total_gb: 128
+
+vms:
+  # pve-dev-01: 40 GB used (31.25%)
+  dev-env-alice:
+    node: pve-dev-01
+    cpu: 4
+    memory_gb: 24
+    type: vm
+  dev-env-bob:
+    node: pve-dev-01
+    cpu: 4
+    memory_gb: 16
+    type: vm
+
+  # pve-dev-02: 48 GB used (37.5%) — most loaded, still well under 60%
+  staging-api:
+    node: pve-dev-02
+    cpu: 4
+    memory_gb: 32
+    type: vm
+  staging-db:
+    node: pve-dev-02
+    cpu: 4
+    memory_gb: 16
+    type: vm
+
+  # pve-dev-03: 24 GB used (18.75%)
+  qa-env-01:
+    node: pve-dev-03
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  qa-env-02:
+    node: pve-dev-03
+    cpu: 2
+    memory_gb: 8
+    type: vm
+
+# Peak utilization: 37.5% (pve-dev-02). Threshold: 60%.
+# 37.5% < 60% → any_threshold_exceeded = False → weight_balance = 0.
+# Even with balanciness=5 (threshold=0.0), the memory_threshold gate wins.
+expect:
+  feasible: true
+  constraints_satisfied: true
+  max_migrations: 0

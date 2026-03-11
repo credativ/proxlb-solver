@@ -1,0 +1,76 @@
+name: "Homelab — Small Weekend Drift Not Worth Migrating"
+description: >
+  I run a two-node homelab on repurposed workstations. Every weekend some
+  VMs get rebooted for updates and occasionally stack up on one node. On
+  Monday morning I notice hv-home-01 is at around 22% and hv-home-02 at 12%
+  — a visible gap of roughly 10 percentage points.
+
+  I've set balanciness=2 because I only want the solver to act on genuinely
+  significant imbalances (the level-2 threshold is a 25pp effective gap). A
+  10pp drift on a homelab is trivial: both nodes have plenty of headroom,
+  Nextcloud and Jellyfin are running fine, and a live migration would briefly
+  interrupt playback or sync. Not worth it.
+
+  I know the cluster isn't perfectly balanced. That's OK. The VMs will
+  naturally drift back toward balance next time they restart, and if things
+  ever get seriously uneven I'll let the solver handle it then.
+
+  Expected outcome: zero migrations — the imbalance is below the
+  balanciness=2 trigger threshold.
+
+balancing:
+  method: memory
+  balanciness: 2
+  cpu_overcommit: 2.0
+
+nodes:
+  hv-home-01:
+    cpu_total: 16   # Ryzen 5 5600X
+    memory_total_gb: 64
+  hv-home-02:
+    cpu_total: 8    # Core i7-8700
+    memory_total_gb: 64
+
+vms:
+  # hv-home-01: 14 GB used (21.9%)
+  nextcloud:
+    node: hv-home-01
+    cpu: 4
+    memory_gb: 12
+    type: vm
+  jellyfin:
+    node: hv-home-01
+    cpu: 4
+    memory_gb: 2
+    type: vm
+
+  # hv-home-02: 8 GB used (12.5%)
+  homeassistant:
+    node: hv-home-02
+    cpu: 2
+    memory_gb: 2
+    type: vm
+  pihole:
+    node: hv-home-02
+    cpu: 1
+    memory_gb: 1
+    type: ct
+  vaultwarden:
+    node: hv-home-02
+    cpu: 1
+    memory_gb: 1
+    type: ct
+  gitea:
+    node: hv-home-02
+    cpu: 2
+    memory_gb: 4
+    type: vm
+
+# Raw load gap: 21.9% - 12.5% = 9.4pp.
+# The solver uses priority-weighted load (default priority=2 for all VMs),
+# which gives an effective gap of 18.75%. The balanciness=2 threshold is 25%.
+# Since 18.75% < 25%, weight_balance=0 and no migrations are triggered.
+expect:
+  feasible: true
+  constraints_satisfied: true
+  max_migrations: 0
