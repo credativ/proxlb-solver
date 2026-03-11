@@ -63,3 +63,11 @@ exclude = ["proxlb_solver.tests*"]
 #   tests/            — scenario-driven integration tests
 #   tests/unit/       — unit tests for adapter, shadow mode, constraints
 testpaths = ["tests"]
+
+[tool.mypy]
+strict = true
+python_version = "3.9"
+
+[[tool.mypy.overrides]]
+module = ["proxlb.*"]
+ignore_missing_imports = true

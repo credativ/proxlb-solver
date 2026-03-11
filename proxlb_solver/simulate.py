@@ -5,7 +5,7 @@ from proxlb_solver.adapter import from_proxlb_data
 from proxlb_solver.solver import solve_reachable
 from proxlb_solver.reporter import print_report
 
-def run_simulation(dump_path: str):
+def run_simulation(dump_path: str) -> None:
     with open(dump_path) as f:
         data = json.load(f)
 
