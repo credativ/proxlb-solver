@@ -116,15 +116,15 @@ def run_shadow(proxlb_data: "dict[str, Any] | ProxLbData", solver_cfg: "dict[str
     import logging
     log = logging.getLogger("ProxLB")
 
-    proxlb_data = _normalize_proxlb_data(proxlb_data)
-    solver_cfg  = _normalize_solver_cfg(solver_cfg)
+    data = _normalize_proxlb_data(proxlb_data)
+    cfg  = _normalize_solver_cfg(solver_cfg)
 
-    mode             = str(solver_cfg.mode)
-    log_dir          = solver_cfg.log_dir
-    use_reservations = solver_cfg.use_reservations
-    timeout_seconds  = solver_cfg.timeout_seconds
-    max_step_retries = solver_cfg.active_step_retries
-    balancing_cfg    = proxlb_data.get("meta", {}).get("balancing", {})
+    mode             = str(cfg.mode)
+    log_dir          = cfg.log_dir
+    use_reservations = cfg.use_reservations
+    timeout_seconds  = cfg.timeout_seconds
+    max_step_retries = cfg.active_step_retries
+    balancing_cfg    = data.get("meta", {}).get("balancing", {})
     balanciness      = balancing_cfg.get("balanciness", 3)
     method           = balancing_cfg.get("method", "memory")
 
@@ -148,7 +148,7 @@ def run_shadow(proxlb_data: "dict[str, Any] | ProxLbData", solver_cfg: "dict[str
     _plan = None
     try:
         with open(run_file, "w") as f:
-            _plan = _shadow_inner(proxlb_data, solver_cfg, f, log, run_file)
+            _plan = _shadow_inner(data, cfg, f, log, run_file)
     except Exception as exc:  # noqa: BLE001
         # Safety net — _shadow_inner handles its own errors; this catches
         # unexpected failures outside that scope (e.g. file write errors).
@@ -614,11 +614,11 @@ def execute_solver_plan(
 
     log = logging.getLogger("ProxLB")
 
-    solver_cfg = _normalize_solver_cfg(solver_cfg)
+    cfg = _normalize_solver_cfg(solver_cfg)
 
-    max_step_retries = solver_cfg.active_step_retries
-    use_res          = solver_cfg.use_reservations
-    time_limit       = solver_cfg.timeout_seconds
+    max_step_retries = cfg.active_step_retries
+    use_res          = cfg.use_reservations
+    time_limit       = cfg.timeout_seconds
 
     plan   = initial_plan
     pinned: set[str] = set()
