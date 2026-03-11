@@ -125,6 +125,33 @@ def _allowed_temp_nodes(
     return sorted(candidates)
 
 
+def _find_cycle_members(dependencies: dict[str, set[str]]) -> set[str]:
+    """
+    DFS-based cycle detection on the dependency graph.
+    Returns the set of VM names that are part of any cycle.
+    """
+    cycle_members: set[str] = set()
+    visited: set[str] = set()
+    recursion_stack: set[str] = set()
+
+    def _dfs(node: str) -> None:
+        if node in visited:
+            return
+        if node in recursion_stack:
+            cycle_members.add(node)
+            return
+        recursion_stack.add(node)
+        for neighbor in dependencies.get(node, set()):
+            _dfs(neighbor)
+        recursion_stack.discard(node)
+        visited.add(node)
+
+    for node in list(dependencies.keys()):
+        _dfs(node)
+
+    return cycle_members
+
+
 def plan_migrations(
     cluster: Cluster, solution: Solution,
     max_parallel: int | None = None,
@@ -215,80 +242,66 @@ def plan_migrations(
 
     dependency_edges = [(a, b) for a in dependencies for b in dependencies[a]]
 
-    # ── Deadlock Detection (Cycles) ────────────────────────────────────────
-    # Find sets of VMs that form a dependency loop (e.g. A depends on B, B on A).
-    cycle_members, visited, recursion_stack = set(), set(), set()
-
-    def _find_cycles(node_name: str):
-        if node_name in visited: return
-        if node_name in recursion_stack:
-            cycle_members.add(node_name); return
-        recursion_stack.add(node_name)
-        for neighbor in dependencies.get(node_name, set()):
-            _find_cycles(neighbor)
-        recursion_stack.discard(node_name)
-        visited.add(node_name)
-
-    for vm_name in active_migrations_map:
-        _find_cycles(vm_name)
-
-    # ── Cycle Breaking (Temp-Moves) ────────────────────────────────────────
+    # ── Deadlock Detection and Breaking (Iterative) ────────────────────────
+    # Each round: find cycles, attempt to break one by parking a VM on a spare node.
+    # Repeat until the dependency graph is a DAG or breaking is impossible.
     temp_moves_vms, temp_migrations_list = [], []
+    node_used_mem_work = defaultdict(int, node_used_mem)
+    node_used_cpu_work = defaultdict(int, node_used_cpu)
 
-    if cycle_members:
-        # Expand the cycle set to include all nodes that lead into it
+    for _cycle_round in range(len(active_migrations_map) + 1):
+        cycle_members = _find_cycle_members(dependencies)
+        if not cycle_members:
+            break  # Dependency graph is now a DAG — proceed to step generation
+
+        # Expand the cycle set to include all VMs that feed into it
         all_cycle_participants = set(cycle_members)
-        expansion_occurred = True
-        while expansion_occurred:
-            expansion_occurred = False
-            for vm, target_set in dependencies.items():
-                if vm not in all_cycle_participants and (target_set & all_cycle_participants):
+        changed = True
+        while changed:
+            changed = False
+            for vm, deps in dependencies.items():
+                if vm not in all_cycle_participants and (deps & all_cycle_participants):
                     all_cycle_participants.add(vm)
-                    expansion_occurred = True
+                    changed = True
 
-        # Working state for capacity simulation
-        node_used_mem_work = defaultdict(int, node_used_mem)
-        node_used_cpu_work = defaultdict(int, node_used_cpu)
-
-        is_cycle_broken = False
-        # Try to break the cycle by moving ONE VM (and its affinity group) to a temp node.
+        # Try to break the cycle by parking ONE VM on a temp (spare) node
+        broke = False
         for vm_name in sorted(all_cycle_participants):
             migration = active_migrations_map[vm_name]
             affinity_group = _get_affinity_group(vm_name, cluster)
 
-            # Look for a parking spot
             spare_nodes = _allowed_temp_nodes(
                 affinity_group, cluster, solution,
                 {migration.source, migration.target},
-                node_used_mem_work, node_used_cpu_work
+                node_used_mem_work, node_used_cpu_work,
             )
+            if not spare_nodes:
+                continue
 
-            if spare_nodes:
-                parking_node = spare_nodes[0]
-                for member_name in sorted(affinity_group):
-                    member_vm = vm_lookup[member_name]
-                    temp_moves_vms.append(member_name)
-                    # Step 1: Move to parking spot
-                    temp_migrations_list.append(Migration(member_name, member_vm.node, parking_node))
+            parking_node = spare_nodes[0]
+            for member_name in sorted(affinity_group):
+                member_vm = vm_lookup[member_name]
+                temp_moves_vms.append(member_name)
+                temp_migrations_list.append(Migration(vm=member_name, source=member_vm.node, target=parking_node))
 
-                    # Update simulated load
-                    node_used_mem_work[member_vm.node] -= member_vm.memory
-                    node_used_mem_work[parking_node] += member_vm.memory
-                    node_used_cpu_work[member_vm.node] -= member_vm.cpu
-                    node_used_cpu_work[parking_node] += member_vm.cpu
+                node_used_mem_work[member_vm.node] -= member_vm.memory
+                node_used_mem_work[parking_node] += member_vm.memory
+                node_used_cpu_work[member_vm.node] -= member_vm.cpu
+                node_used_cpu_work[parking_node] += member_vm.cpu
 
-                    # Remove all outgoing dependencies for this VM (it's now "free" to move)
-                    dependencies.pop(member_name, None)
-                    # Remove all incoming dependencies (it no longer blocks others)
-                    for other_vm in list(dependencies.keys()):
-                        dependencies[other_vm].discard(member_name)
+                # Remove this VM's deps (it will move freely) and unblock others
+                dependencies.pop(member_name, None)
+                for other_vm in list(dependencies.keys()):
+                    dependencies[other_vm].discard(member_name)
 
-                is_cycle_broken = True
-                break
+            broke = True
+            break
 
-        if not is_cycle_broken:
-            # Fatal: The cluster is too full or constrained to break the dependency cycle.
-            return MigrationPlan([], dependency_edges, [], False, sorted(all_cycle_participants), sorted(pve_deferred_vms))
+        if not broke:
+            # Fatal: cycle cannot be broken — no valid parking spot exists
+            return MigrationPlan(steps=[], dependency_edges=dependency_edges, temp_moves=[],
+                                 path_feasible=False, unbreakable_cycle=sorted(all_cycle_participants),
+                                 pve_deferred=sorted(pve_deferred_vms))
 
     # ── Step Generation (Kahn's Algorithm) ──────────────────────────────────
     simulated_node_used_mem = defaultdict(int, node_used_mem)
@@ -327,7 +340,7 @@ def plan_migrations(
                 break
 
             # All checks passed! Add to current step
-            current_step_migrations.append(Migration(vm_name, source, target))
+            current_step_migrations.append(Migration(vm=vm_name, source=source, target=target))
             inflow_count[target] += 1
             processed_indices.append(i)
 
@@ -337,7 +350,7 @@ def plan_migrations(
 
         # Register the completed step
         is_parallel = len(current_step_migrations) > 1
-        final_steps.append(MigrationStep(step_counter, current_step_migrations, is_parallel))
+        final_steps.append(MigrationStep(step=step_counter, migrations=current_step_migrations, parallel=is_parallel))
         step_counter += 1
 
         # Execute migrations in simulation (free space at source, take at destination)
@@ -355,9 +368,19 @@ def plan_migrations(
                 final_target = all_migrations[vm_name].target
                 task_queue.append((target, final_target, vm_name, False))
 
+    # Safety check: items still queued means an unresolvable deadlock was missed
+    if task_queue:
+        remaining_vms = sorted({vm_name for _, _, vm_name, _ in task_queue})
+        return MigrationPlan(
+            final_steps, dependency_edges, temp_moves_vms,
+            path_feasible=False,
+            unbreakable_cycle=remaining_vms,
+            pve_deferred=sorted(pve_deferred_vms),
+        )
+
     return MigrationPlan(
-        final_steps,
-        dependency_edges,
-        temp_moves_vms,
+        steps=final_steps,
+        dependency_edges=dependency_edges,
+        temp_moves=temp_moves_vms,
         pve_deferred=sorted(pve_deferred_vms)
     )

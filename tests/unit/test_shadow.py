@@ -352,7 +352,7 @@ def _make_one_step_plan(vm="vm-100", source="node1", target="node2"):
     return MigrationPlan(
         steps=[MigrationStep(
             step=1,
-            migrations=[Migration(vm, source, target)],
+            migrations=[Migration(vm=vm, source=source, target=target)],
             parallel=False,
         )],
         dependency_edges=[],
@@ -527,7 +527,7 @@ def test_execute_single_step_updates_node_current(tmp_path):
     data = copy.deepcopy(_MINIMAL_PROXLB_DATA)
     step = MigrationStep(
         step=1,
-        migrations=[Migration("vm-100", "node1", "node2")],
+        migrations=[Migration(vm="vm-100", source="node1", target="node2")],
         parallel=False,
     )
 
@@ -556,8 +556,8 @@ def test_execute_solver_plan_aborts_step_on_verify_failure(tmp_path):
     data = copy.deepcopy(_MINIMAL_PROXLB_DATA)
     plan = MigrationPlan(
         steps=[
-            MigrationStep(step=1, migrations=[Migration("vm-100", "node1", "node2")], parallel=False),
-            MigrationStep(step=2, migrations=[Migration("vm-101", "node2", "node1")], parallel=False),
+            MigrationStep(step=1, migrations=[Migration(vm="vm-100", source="node1", target="node2")], parallel=False),
+            MigrationStep(step=2, migrations=[Migration(vm="vm-101", source="node2", target="node1")], parallel=False),
         ],
         dependency_edges=[],
         temp_moves=[],
@@ -608,8 +608,8 @@ def test_execute_single_step_balancing_exception_marks_all_vms_failed(tmp_path):
     step = MigrationStep(
         step=1,
         migrations=[
-            Migration("vm-100", "node1", "node2"),
-            Migration("vm-101", "node2", "node1"),
+            Migration(vm="vm-100", source="node1", target="node2"),
+            Migration(vm="vm-101", source="node2", target="node1"),
         ],
         parallel=True,
     )
@@ -651,8 +651,8 @@ def test_execute_solver_plan_balancing_exception_skips_subsequent_steps(tmp_path
     data = copy.deepcopy(_MINIMAL_PROXLB_DATA)
     plan = MigrationPlan(
         steps=[
-            MigrationStep(step=1, migrations=[Migration("vm-100", "node1", "node2")], parallel=False),
-            MigrationStep(step=2, migrations=[Migration("vm-101", "node2", "node1")], parallel=False),
+            MigrationStep(step=1, migrations=[Migration(vm="vm-100", source="node1", target="node2")], parallel=False),
+            MigrationStep(step=2, migrations=[Migration(vm="vm-101", source="node2", target="node1")], parallel=False),
         ],
         dependency_edges=[],
         temp_moves=[],

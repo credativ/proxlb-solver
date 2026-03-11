@@ -38,12 +38,12 @@ class TestPreferSmallerMigration:
 
     def setup_method(self):
         nodes = [
-            Node("node-A", cpu_total=4, memory_total=32 * _GiB),
-            Node("node-B", cpu_total=4, memory_total=32 * _GiB),
+            Node(name="node-A", cpu_total=4, memory_total=32 * _GiB),
+            Node(name="node-B", cpu_total=4, memory_total=32 * _GiB),
         ]
         vms = [
-            VM("vm-large", node="node-A", cpu=2, memory=8 * _GiB),
-            VM("vm-small", node="node-A", cpu=1, memory=512 * _MiB),
+            VM(name="vm-large", node="node-A", cpu=2, memory=8 * _GiB),
+            VM(name="vm-small", node="node-A", cpu=1, memory=512 * _MiB),
         ]
         self.solution = solve(_cluster(nodes, vms))
 
@@ -78,14 +78,14 @@ class TestLocalDiskAvoidance:
 
     def setup_method(self):
         nodes = [
-            Node("node-A", cpu_total=4, memory_total=64 * _GiB,
+            Node(name="node-A", cpu_total=4, memory_total=64 * _GiB,
                  storage_free={"local-lvm": 200 * _GiB}),
-            Node("node-B", cpu_total=4, memory_total=64 * _GiB,
+            Node(name="node-B", cpu_total=4, memory_total=64 * _GiB,
                  storage_free={"local-lvm": 200 * _GiB}),
         ]
         vms = [
-            VM("vm-ramonly", node="node-A", cpu=2, memory=4 * _GiB),
-            VM("vm-diskvm",  node="node-A", cpu=2, memory=4 * _GiB,
+            VM(name="vm-ramonly", node="node-A", cpu=2, memory=4 * _GiB),
+            VM(name="vm-diskvm",  node="node-A", cpu=2, memory=4 * _GiB,
                disks={"local-lvm": 100 * _GiB}),
         ]
         self.solution = solve(_cluster(nodes, vms))
@@ -119,12 +119,12 @@ class TestCostGibField:
     def test_cost_gib_for_8gib_vm(self):
         # Two 8 GiB VMs both on node-A; solver migrates one to node-B.
         nodes = [
-            Node("node-A", cpu_total=4, memory_total=32 * _GiB),
-            Node("node-B", cpu_total=4, memory_total=32 * _GiB),
+            Node(name="node-A", cpu_total=4, memory_total=32 * _GiB),
+            Node(name="node-B", cpu_total=4, memory_total=32 * _GiB),
         ]
         vms = [
-            VM("vm-1", node="node-A", cpu=2, memory=8 * _GiB),
-            VM("vm-2", node="node-A", cpu=2, memory=8 * _GiB),
+            VM(name="vm-1", node="node-A", cpu=2, memory=8 * _GiB),
+            VM(name="vm-2", node="node-A", cpu=2, memory=8 * _GiB),
         ]
         sol = solve(_cluster(nodes, vms))
         assert sol.feasible
@@ -136,15 +136,15 @@ class TestCostGibField:
         # pinning vm-other there, forcing vm-disk to migrate to node-B.
         # display cost = max(1, 4) + 4 * 10 = 44
         nodes = [
-            Node("node-A", cpu_total=4, memory_total=64 * _GiB,
+            Node(name="node-A", cpu_total=4, memory_total=64 * _GiB,
                  storage_free={"local-lvm": 200 * _GiB}),
-            Node("node-B", cpu_total=4, memory_total=64 * _GiB,
+            Node(name="node-B", cpu_total=4, memory_total=64 * _GiB,
                  storage_free={"local-lvm": 200 * _GiB}),
         ]
         vms = [
-            VM("vm-disk",  node="node-A", cpu=2, memory=4 * _GiB,
+            VM(name="vm-disk",  node="node-A", cpu=2, memory=4 * _GiB,
                disks={"local-lvm": 10 * _GiB}),
-            VM("vm-other", node="node-A", cpu=2, memory=4 * _GiB),
+            VM(name="vm-other", node="node-A", cpu=2, memory=4 * _GiB),
         ]
         # Pin vm-other to node-A so vm-disk is the only VM that can move.
         cons = Constraints(pin=[{"vm": "vm-other", "nodes": ["node-A"]}])
@@ -157,12 +157,12 @@ class TestCostGibField:
     def test_no_migrations_zero_cost(self):
         # Already balanced — no migrations expected
         nodes = [
-            Node("node-A", cpu_total=4, memory_total=16 * _GiB),
-            Node("node-B", cpu_total=4, memory_total=16 * _GiB),
+            Node(name="node-A", cpu_total=4, memory_total=16 * _GiB),
+            Node(name="node-B", cpu_total=4, memory_total=16 * _GiB),
         ]
         vms = [
-            VM("vm-1", node="node-A", cpu=1, memory=4 * _GiB),
-            VM("vm-2", node="node-B", cpu=1, memory=4 * _GiB),
+            VM(name="vm-1", node="node-A", cpu=1, memory=4 * _GiB),
+            VM(name="vm-2", node="node-B", cpu=1, memory=4 * _GiB),
         ]
         sol = solve(_cluster(nodes, vms, balanciness=3))
         # Balanced already — solver may choose 0 migrations
@@ -182,14 +182,14 @@ class TestThreeVmCostPreference:
 
     def setup_method(self):
         nodes = [
-            Node("node-A", cpu_total=4, memory_total=16 * _GiB),
-            Node("node-B", cpu_total=4, memory_total=16 * _GiB),
-            Node("node-C", cpu_total=4, memory_total=16 * _GiB),
+            Node(name="node-A", cpu_total=4, memory_total=16 * _GiB),
+            Node(name="node-B", cpu_total=4, memory_total=16 * _GiB),
+            Node(name="node-C", cpu_total=4, memory_total=16 * _GiB),
         ]
         vms = [
-            VM("vm-heavy-1", node="node-A", cpu=2, memory=1 * _GiB),
-            VM("vm-heavy-2", node="node-A", cpu=2, memory=1 * _GiB),
-            VM("vm-idle",    node="node-A", cpu=1, memory=512 * _MiB),
+            VM(name="vm-heavy-1", node="node-A", cpu=2, memory=1 * _GiB),
+            VM(name="vm-heavy-2", node="node-A", cpu=2, memory=1 * _GiB),
+            VM(name="vm-idle",    node="node-A", cpu=1, memory=512 * _MiB),
         ]
         self.solution = solve(_cluster(nodes, vms))
 
