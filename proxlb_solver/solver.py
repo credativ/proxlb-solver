@@ -15,7 +15,6 @@ To overcome this, we scale all percentages and fractional values by _LOAD_SCALE
 
 from __future__ import annotations
 import time
-import dataclasses
 import logging
 from ortools.sat.python import cp_model
 
@@ -233,7 +232,9 @@ def solve(cluster: Cluster, time_limit_s: float = 30.0, forbidden_placements: li
     try:
         validate_and_merge_constraints(cluster)
     except RuleConflictError as e:
-        return Solution(False, {}, [], SolverStats(f"RULE_CONFLICT: {str(e)}", 0, 0.0, 0, 0))
+        return Solution(feasible=False, placements={}, migrations=[],
+                        stats=SolverStats(status=f"RULE_CONFLICT: {str(e)}", objective=0,
+                                         load_gap=0.0, migration_count=0, wall_time_ms=0))
 
     model = cp_model.CpModel()
     nodes, vms, bal, cons = cluster.nodes, cluster.vms, cluster.balancing, cluster.constraints
@@ -407,14 +408,21 @@ def solve(cluster: Cluster, time_limit_s: float = 30.0, forbidden_placements: li
     t0 = time.monotonic(); status = solver.solve(model); wall_ms = (time.monotonic() - t0) * 1000
 
     if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
-        return Solution(False, {}, [], SolverStats(solver.status_name(status), 0, 0.0, 0, wall_ms), _find_blocking_vms(cluster, time_limit_s) if cluster.evacuate_node else [])
+        return Solution(feasible=False, placements={}, migrations=[],
+                        stats=SolverStats(status=solver.status_name(status), objective=0,
+                                         load_gap=0.0, migration_count=0, wall_time_ms=wall_ms),
+                        blocking_vms=_find_blocking_vms(cluster, time_limit_s) if cluster.evacuate_node else [])
 
     placements = {v.name: nodes[j].name for i, v in enumerate(vms) for j in range(len(nodes)) if solver.value(x[i][j])}
-    migrations = [Migration(v.name, v.node, placements[v.name]) for v in vms if placements[v.name] != v.node]
+    migrations = [Migration(vm=v.name, source=v.node, target=placements[v.name]) for v in vms if placements[v.name] != v.node]
     vm_by_name = {v.name: v for v in vms}
     cost_gib = sum(max(1, vm_by_name[m.vm].memory // _GiB) + _LOCAL_DISK_FACTOR * (sum(vm_by_name[m.vm].disks.values()) // _GiB if vm_by_name[m.vm].disks else 0) for m in migrations)
 
-    return Solution(True, placements, migrations, SolverStats(solver.status_name(status), solver.objective_value, solver.value(load_gap) / _LOAD_SCALE, len(migrations), wall_ms, cost_gib))
+    return Solution(feasible=True, placements=placements, migrations=migrations,
+                    stats=SolverStats(status=solver.status_name(status), objective=int(round(solver.objective_value)),
+                                      load_gap=solver.value(load_gap) / _LOAD_SCALE,
+                                      migration_count=len(migrations), wall_time_ms=wall_ms,
+                                      migration_cost_gib=cost_gib))
 
 
 def solve_reachable(cluster: Cluster, total_time_limit_s: float = 60.0, max_retries: int = 10, quiet: bool = True) -> tuple[Solution, MigrationPlan]:
@@ -430,17 +438,17 @@ def solve_reachable(cluster: Cluster, total_time_limit_s: float = 60.0, max_retr
         # 1. Try to find an optimal distribution
         sol = solve(cluster, time_limit_s=max(1.0, rem), forbidden_placements=forbidden)
         if not sol.feasible:
-            if last_sol: return dataclasses.replace(last_sol, path_feasible=False, reachability_attempts=attempt + 1), last_plan
+            if last_sol: return last_sol.model_copy(update={"path_feasible": False, "reachability_attempts": attempt + 1}), last_plan
             return sol, plan_migrations(cluster, sol)
 
         # 2. Check if there is an executable path
         plan = plan_migrations(cluster, sol); last_sol, last_plan = sol, plan
-        if plan.path_feasible: return dataclasses.replace(sol, reachability_attempts=attempt + 1), plan
+        if plan.path_feasible: return sol.model_copy(update={"reachability_attempts": attempt + 1}), plan
 
         # 3. Handle cycles: Forbid this placement and re-solve
         if not plan.unbreakable_cycle: break
         forbidden.append({vm: sol.placements[vm] for vm in plan.unbreakable_cycle if vm in sol.placements})
         if not quiet: logger.info(f"  [solve_reachable] Attempt {attempt+1}: Cycle {plan.unbreakable_cycle}. Retrying...")
 
-    if last_sol: return dataclasses.replace(last_sol, path_feasible=False, reachability_attempts=attempt + 1), last_plan
+    if last_sol: return last_sol.model_copy(update={"path_feasible": False, "reachability_attempts": attempt + 1}), last_plan
     return sol, plan_migrations(cluster, sol)
