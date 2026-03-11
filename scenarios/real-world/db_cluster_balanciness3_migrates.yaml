@@ -1,0 +1,83 @@
+name: "Production DB Cluster — Same Cluster, balanciness=3 Migrates"
+description: >
+  This is the same three-node fintech cluster as in "Production DB Cluster —
+  Stability Over Balance", but with balanciness=3 (Moderate) instead of
+  balanciness=1 (Conservative).
+
+  Imagine the admin has decided to experiment with automatic rebalancing during
+  a low-traffic window. The cluster still has the same imbalance: pve-hv01 at
+  roughly 50% and pve-hv03 barely above 9%. With balanciness=3, the trigger
+  threshold is 15pp. The effective weighted load gap is far above that, so the
+  solver will now actively redistribute VMs toward pve-hv03.
+
+  Compare with "Stability Over Balance": identical hardware, identical VMs,
+  identical load distribution. The only change is balanciness=1 → 3. That
+  single knob is the difference between "never touch anything" and
+  "actively rebalance."
+
+  Expected outcome: spread is improved, at least one VM migrates to pve-hv03.
+
+balancing:
+  method: memory
+  balanciness: 3     # threshold: 15pp — the 81% gap far exceeds this
+  cpu_overcommit: 2.0
+
+nodes:
+  pve-hv01:
+    cpu_total: 48
+    memory_total_gb: 256
+  pve-hv02:
+    cpu_total: 48
+    memory_total_gb: 256
+  pve-hv03:
+    cpu_total: 48
+    memory_total_gb: 256
+
+vms:
+  # pve-hv01: 128 GB used (50%)
+  db-primary:
+    node: pve-hv01
+    cpu: 16
+    memory_gb: 80
+    type: vm
+  erp-backend:
+    node: pve-hv01
+    cpu: 8
+    memory_gb: 48
+    type: vm
+
+  # pve-hv02: 112 GB used (43.75%)
+  db-replica:
+    node: pve-hv02
+    cpu: 16
+    memory_gb: 80
+    type: vm
+  web-frontend-01:
+    node: pve-hv02
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  web-frontend-02:
+    node: pve-hv02
+    cpu: 4
+    memory_gb: 16
+    type: vm
+
+  # pve-hv03: 24 GB used (9.4%) — should receive VMs now
+  monitoring-stack:
+    node: pve-hv03
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  logging-stack:
+    node: pve-hv03
+    cpu: 2
+    memory_gb: 8
+    type: vm
+
+# Effective weighted gap (priority=2): ~81% >> 15% threshold → triggers.
+# Total: 264 GB across 768 GB → target ~88 GB (34%) per node.
+expect:
+  feasible: true
+  constraints_satisfied: true
+  spread_improved: true

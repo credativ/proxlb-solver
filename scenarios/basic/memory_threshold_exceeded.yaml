@@ -1,0 +1,27 @@
+name: "Memory Threshold Exceeded — Rebalance when full"
+description: >
+  Cluster with 2 nodes and 2 VMs. Node-A is 93% full (50+10 / 64).
+  Threshold is set to 80%.
+  Since Node-A exceeds 80%, rebalancing is triggered.
+  The solver should move VM-2 to Node-B to improve the gap.
+
+balancing:
+  method: memory
+  memory_threshold: 80
+  balanciness: 5
+
+nodes:
+  node-A: {cpu_total: 16, memory_total_gb: 64}
+  node-B: {cpu_total: 16, memory_total_gb: 64}
+
+vms:
+  vm-1: {node: node-A, cpu: 4, memory_gb: 50}
+  vm-2: {node: node-A, cpu: 4, memory_gb: 10}
+
+expect:
+  feasible: true
+  spread_improved: true
+  max_migrations: 1
+  placements:
+    vm-1: node-A
+    vm-2: node-B

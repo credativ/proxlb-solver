@@ -12,15 +12,17 @@ from pathlib import Path
 sys.path.append(os.getcwd())
 
 try:
-    from utils.proxmox_api import ProxmoxApi
-    from models.nodes import Nodes
-    from models.guests import Guests
-    from models.ha_rules import HaRules
-    from models.pools import Pools
-    from models.features import Features
-    from models.groups import Groups
+    from proxlb.utils.config_parser import ConfigParser
+    from proxlb.utils.proxmox_api import ProxmoxApi
+    from proxlb.models.nodes import Nodes
+    from proxlb.models.guests import Guests
+    from proxlb.models.ha_rules import HaRules
+    from proxlb.models.pools import Pools
+    from proxlb.models.features import Features
+    from proxlb.models.groups import Groups
+    from proxlb.utils.proxlb_data import ProxLbData
 except ImportError as e:
-    print(f"Error: Could not import ProxLB modules. Ensure you are in the 'proxlb' subdirectory of ProxLB.")
+    print(f"Error: Could not import ProxLB modules. Ensure you are in the 'ProxLB' directory.")
     print(f"Details: {e}")
     sys.exit(1)
 
@@ -29,25 +31,36 @@ def export_data(config_path, output_path):
         print(f"Error: Config file not found at {config_path}")
         sys.exit(1)
 
-    with open(config_path) as f:
-        config = yaml.safe_load(f)
+    print(f"Loading Config...")
+    config_parser = ConfigParser(Path(config_path))
+    proxlb_config = config_parser.get_config()
 
     print(f"Connecting to Proxmox API...")
-    proxmox_api = ProxmoxApi(config)
-    
+    proxmox_api = ProxmoxApi(proxlb_config)
+
     print("Gathering Cluster Data...")
-    nodes = Nodes.get_nodes(proxmox_api, config)
-    meta = {"meta": config}
-    meta = Features.validate_any_non_pve9_node(meta, nodes)
+    nodes = Nodes.get_nodes(proxmox_api, proxlb_config)
+    meta = Features.validate_any_non_pve9_node(proxlb_config, nodes)
     pools = Pools.get_pools(proxmox_api)
     ha_rules = HaRules.get_ha_rules(proxmox_api, meta)
-    guests = Guests.get_guests(proxmox_api, pools, ha_rules, nodes, meta, config)
+    guests = Guests.get_guests(proxmox_api, pools, ha_rules, nodes, proxlb_config)
     groups = Groups.get_groups(guests, nodes)
 
-    proxlb_data = {**meta, **nodes, **guests, **pools, **ha_rules, **groups}
-    
+    proxlb_data = ProxLbData(
+        meta=meta,
+        nodes=nodes,
+        guests=guests,
+        pools=pools,
+        ha_rules=ha_rules,
+        groups=groups,
+    )
+
     with open(output_path, 'w') as f:
-        json.dump(proxlb_data, f, indent=2)
+        # Pydantic v2 support
+        if hasattr(proxlb_data, "model_dump_json"):
+            f.write(proxlb_data.model_dump_json(indent=2, by_alias=True))
+        else:
+            f.write(proxlb_data.json(indent=2, by_alias=True))
     print(f"Success: Data exported to {output_path}")
 
 if __name__ == "__main__":

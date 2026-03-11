@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from pathlib import Path
+from collections import defaultdict
 
-import yaml
+import yaml  # type: ignore[import-untyped]
 
 from .models import Balancing, Cluster, Constraints, Expect, Node, VM
 
@@ -30,8 +31,12 @@ def load_scenario(path: str | Path) -> Cluster:
         )
     balancing = Balancing(
         method=balancing_data.get("method", "memory"),
+        mode=balancing_data.get("mode", "used"),
         balanciness=balanciness,
         cpu_overcommit=balancing_data.get("cpu_overcommit", 2.0),
+        memory_threshold=balancing_data.get("memory_threshold"),
+        cpu_threshold=balancing_data.get("cpu_threshold"),
+        disk_threshold=balancing_data.get("disk_threshold"),
         w_balance=balancing_data.get("w_balance"),
         w_stickiness=balancing_data.get("w_stickiness"),
         w_cpu_usage=balancing_data.get("w_cpu_usage", 1),
@@ -53,13 +58,13 @@ def load_scenario(path: str | Path) -> Cluster:
             sname: _gb_to_bytes(sval)
             for sname, sval in nd.get("storage_free", {}).items()
         }
-        
+
         reserve_data = nd.get("reserve", {})
         storage_reserve = {
             sname: _gb_to_bytes(sval)
             for sname, sval in reserve_data.get("storage_gb", {}).items()
         }
-        
+
         nodes.append(Node(
             name=name,
             cpu_total=nd["cpu_total"],
@@ -75,6 +80,10 @@ def load_scenario(path: str | Path) -> Cluster:
         ))
 
     vms = []
+    tag_affinity = defaultdict(list)
+    tag_anti_affinity = defaultdict(list)
+    tag_pin = []
+
     for name, vd in data.get("vms", {}).items():
         disks = {
             sname: _gb_to_bytes(sval)
@@ -94,6 +103,16 @@ def load_scenario(path: str | Path) -> Cluster:
             vm_type=vd.get("type", "vm"),
         ))
 
+        # Parse tags for implicit constraints
+        for tag in vd.get("tags", []):
+            if tag.startswith("plb_affinity_"):
+                tag_affinity[tag].append(name)
+            elif tag.startswith("plb_anti_affinity_"):
+                tag_anti_affinity[tag].append(name)
+            elif tag.startswith("plb_pin_"):
+                target_node = tag[len("plb_pin_"):]
+                tag_pin.append({"vm": name, "nodes": [target_node], "origins": [{"origin": "tag", "source": tag}]})
+
     cd = data.get("constraints", {})
     ignore_raw = cd.get("ignore", [])
     ignore_list = []
@@ -103,10 +122,22 @@ def load_scenario(path: str | Path) -> Cluster:
         else:
             ignore_list.append(entry)
 
+    affinity = [{**r, "hard": r.get("hard", True), "origin": r.get("origin", "plb")} for r in cd.get("affinity", [])]
+    for tag, t_vms in tag_affinity.items():
+        if len(t_vms) > 1:
+            affinity.append({"name": tag, "vms": t_vms, "hard": True, "origin": "plb"})
+
+    anti_affinity = [{**r, "hard": r.get("hard", True), "origin": r.get("origin", "plb")} for r in cd.get("anti_affinity", [])]
+    for tag, t_vms in tag_anti_affinity.items():
+        if len(t_vms) > 1:
+            anti_affinity.append({"name": tag, "vms": t_vms, "hard": True, "origin": "plb"})
+
+    pin = cd.get("pin", []) + tag_pin
+
     constraints = Constraints(
-        affinity=[{**r, "hard": r.get("hard", True), "origin": r.get("origin", "plb")} for r in cd.get("affinity", [])],
-        anti_affinity=[{**r, "hard": r.get("hard", True), "origin": r.get("origin", "plb")} for r in cd.get("anti_affinity", [])],
-        pin=cd.get("pin", []),
+        affinity=affinity,
+        anti_affinity=anti_affinity,
+        pin=pin,
         ignore=ignore_list,
     )
 

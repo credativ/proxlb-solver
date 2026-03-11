@@ -47,8 +47,8 @@ def _make_cluster(nodes, vms, balancing=None):
 def test_no_migrations():
     """No migrations should return empty MigrationPlan."""
     cluster = _make_cluster(
-        nodes=[Node("n1", 16, 64 * _GB)],
-        vms=[VM("v1", "n1", 2, 8 * _GB)],
+        nodes=[Node(name="n1", cpu_total=16, memory_total=64 * _GB)],
+        vms=[VM(name="v1", node="n1", cpu=2, memory=8 * _GB)],
     )
     sol = Solution(
         feasible=True,
@@ -66,19 +66,19 @@ def test_no_migrations():
 def test_simple_chain():
     """VM-A -> n2, VM-B -> n3: VM-B must move first if n2 is full."""
     nodes = [
-        Node("n1", 16, 64 * _GB),
-        Node("n2", 16, 64 * _GB),
-        Node("n3", 16, 64 * _GB),
+        Node(name="n1", cpu_total=16, memory_total=64 * _GB),
+        Node(name="n2", cpu_total=16, memory_total=64 * _GB),
+        Node(name="n3", cpu_total=16, memory_total=64 * _GB),
     ]
     vms = [
-        VM("vm-a", "n1", 4, 48 * _GB),
-        VM("vm-b", "n2", 4, 48 * _GB),
+        VM(name="vm-a", node="n1", cpu=4, memory=48 * _GB),
+        VM(name="vm-b", node="n2", cpu=4, memory=48 * _GB),
     ]
     cluster = _make_cluster(nodes, vms)
 
     migrations = [
-        Migration("vm-a", "n1", "n2"),
-        Migration("vm-b", "n2", "n3"),
+        Migration(vm="vm-a", source="n1", target="n2"),
+        Migration(vm="vm-b", source="n2", target="n3"),
     ]
     sol = Solution(
         feasible=True,
@@ -99,19 +99,19 @@ def test_simple_chain():
 def test_step_ordering():
     """Chain A depends on B: Step 1 = B, Step 2 = A."""
     nodes = [
-        Node("n1", 16, 64 * _GB),
-        Node("n2", 16, 64 * _GB),
-        Node("n3", 16, 64 * _GB),
+        Node(name="n1", cpu_total=16, memory_total=64 * _GB),
+        Node(name="n2", cpu_total=16, memory_total=64 * _GB),
+        Node(name="n3", cpu_total=16, memory_total=64 * _GB),
     ]
     vms = [
-        VM("vm-a", "n1", 4, 48 * _GB),
-        VM("vm-b", "n2", 4, 48 * _GB),
+        VM(name="vm-a", node="n1", cpu=4, memory=48 * _GB),
+        VM(name="vm-b", node="n2", cpu=4, memory=48 * _GB),
     ]
     cluster = _make_cluster(nodes, vms)
 
     migrations = [
-        Migration("vm-a", "n1", "n2"),
-        Migration("vm-b", "n2", "n3"),
+        Migration(vm="vm-a", source="n1", target="n2"),
+        Migration(vm="vm-b", source="n2", target="n3"),
     ]
     sol = Solution(
         feasible=True,
@@ -131,19 +131,19 @@ def test_step_ordering():
 def test_independent_migrations():
     """Independent migrations should all appear."""
     nodes = [
-        Node("n1", 16, 64 * _GB),
-        Node("n2", 16, 64 * _GB),
-        Node("n3", 16, 64 * _GB),
+        Node(name="n1", cpu_total=16, memory_total=64 * _GB),
+        Node(name="n2", cpu_total=16, memory_total=64 * _GB),
+        Node(name="n3", cpu_total=16, memory_total=64 * _GB),
     ]
     vms = [
-        VM("vm-a", "n1", 2, 8 * _GB),
-        VM("vm-b", "n2", 2, 8 * _GB),
+        VM(name="vm-a", node="n1", cpu=2, memory=8 * _GB),
+        VM(name="vm-b", node="n2", cpu=2, memory=8 * _GB),
     ]
     cluster = _make_cluster(nodes, vms)
 
     migrations = [
-        Migration("vm-a", "n1", "n3"),
-        Migration("vm-b", "n2", "n3"),
+        Migration(vm="vm-a", source="n1", target="n3"),
+        Migration(vm="vm-b", source="n2", target="n3"),
     ]
     sol = Solution(
         feasible=True,
@@ -161,19 +161,19 @@ def test_independent_migrations():
 def test_parallel_detection():
     """Two independent moves should be in 1 step with parallel=True."""
     nodes = [
-        Node("n1", 16, 64 * _GB),
-        Node("n2", 16, 64 * _GB),
-        Node("n3", 16, 64 * _GB),
+        Node(name="n1", cpu_total=16, memory_total=64 * _GB),
+        Node(name="n2", cpu_total=16, memory_total=64 * _GB),
+        Node(name="n3", cpu_total=16, memory_total=64 * _GB),
     ]
     vms = [
-        VM("vm-a", "n1", 2, 8 * _GB),
-        VM("vm-b", "n2", 2, 8 * _GB),
+        VM(name="vm-a", node="n1", cpu=2, memory=8 * _GB),
+        VM(name="vm-b", node="n2", cpu=2, memory=8 * _GB),
     ]
     cluster = _make_cluster(nodes, vms)
 
     migrations = [
-        Migration("vm-a", "n1", "n3"),
-        Migration("vm-b", "n2", "n3"),
+        Migration(vm="vm-a", source="n1", target="n3"),
+        Migration(vm="vm-b", source="n2", target="n3"),
     ]
     sol = Solution(
         feasible=True,
@@ -192,19 +192,19 @@ def test_parallel_detection():
 def test_cycle_detection():
     """Circular dependency: vm-a→n2, vm-b→n1 with both nodes full."""
     nodes = [
-        Node("n1", 16, 60 * _GB),
-        Node("n2", 16, 60 * _GB),
-        Node("n3", 16, 64 * _GB),  # spare node for cycle breaking
+        Node(name="n1", cpu_total=16, memory_total=60 * _GB),
+        Node(name="n2", cpu_total=16, memory_total=60 * _GB),
+        Node(name="n3", cpu_total=16, memory_total=64 * _GB),  # spare node for cycle breaking
     ]
     vms = [
-        VM("vm-a", "n1", 4, 50 * _GB),
-        VM("vm-b", "n2", 4, 50 * _GB),
+        VM(name="vm-a", node="n1", cpu=4, memory=50 * _GB),
+        VM(name="vm-b", node="n2", cpu=4, memory=50 * _GB),
     ]
     cluster = _make_cluster(nodes, vms)
 
     migrations = [
-        Migration("vm-a", "n1", "n2"),
-        Migration("vm-b", "n2", "n1"),
+        Migration(vm="vm-a", source="n1", target="n2"),
+        Migration(vm="vm-b", source="n2", target="n1"),
     ]
     sol = Solution(
         feasible=True,
@@ -229,19 +229,19 @@ def test_cycle_detection():
 def test_cycle_temp_steps():
     """Cycle temp move should be in its own step."""
     nodes = [
-        Node("n1", 16, 60 * _GB),
-        Node("n2", 16, 60 * _GB),
-        Node("n3", 16, 64 * _GB),
+        Node(name="n1", cpu_total=16, memory_total=60 * _GB),
+        Node(name="n2", cpu_total=16, memory_total=60 * _GB),
+        Node(name="n3", cpu_total=16, memory_total=64 * _GB),
     ]
     vms = [
-        VM("vm-a", "n1", 4, 50 * _GB),
-        VM("vm-b", "n2", 4, 50 * _GB),
+        VM(name="vm-a", node="n1", cpu=4, memory=50 * _GB),
+        VM(name="vm-b", node="n2", cpu=4, memory=50 * _GB),
     ]
     cluster = _make_cluster(nodes, vms)
 
     migrations = [
-        Migration("vm-a", "n1", "n2"),
-        Migration("vm-b", "n2", "n1"),
+        Migration(vm="vm-a", source="n1", target="n2"),
+        Migration(vm="vm-b", source="n2", target="n1"),
     ]
     sol = Solution(
         feasible=True,
@@ -262,8 +262,8 @@ def test_cycle_temp_steps():
 def test_infeasible_passthrough():
     """Infeasible solution should return empty MigrationPlan."""
     cluster = _make_cluster(
-        nodes=[Node("n1", 16, 64 * _GB)],
-        vms=[VM("v1", "n1", 2, 8 * _GB)],
+        nodes=[Node(name="n1", cpu_total=16, memory_total=64 * _GB)],
+        vms=[VM(name="v1", node="n1", cpu=2, memory=8 * _GB)],
     )
     sol = Solution(
         feasible=False,
@@ -279,19 +279,19 @@ def test_infeasible_passthrough():
 def test_state_tracking():
     """Node utilization should be correct after each step."""
     nodes = [
-        Node("n1", 16, 64 * _GB),
-        Node("n2", 16, 64 * _GB),
-        Node("n3", 16, 64 * _GB),
+        Node(name="n1", cpu_total=16, memory_total=64 * _GB),
+        Node(name="n2", cpu_total=16, memory_total=64 * _GB),
+        Node(name="n3", cpu_total=16, memory_total=64 * _GB),
     ]
     vms = [
-        VM("vm-a", "n1", 4, 32 * _GB),
-        VM("vm-b", "n1", 4, 16 * _GB),
+        VM(name="vm-a", node="n1", cpu=4, memory=32 * _GB),
+        VM(name="vm-b", node="n1", cpu=4, memory=16 * _GB),
     ]
     cluster = _make_cluster(nodes, vms)
 
     migrations = [
-        Migration("vm-a", "n1", "n2"),
-        Migration("vm-b", "n1", "n3"),
+        Migration(vm="vm-a", source="n1", target="n2"),
+        Migration(vm="vm-b", source="n1", target="n3"),
     ]
     sol = Solution(
         feasible=True,
@@ -331,22 +331,22 @@ def test_state_tracking():
 def test_max_parallel_splits_layer():
     """max_parallel=1 should split 4 independent moves into 4 steps."""
     nodes = [
-        Node("n1", 32, 128 * _GB),
-        Node("n2", 32, 128 * _GB),
+        Node(name="n1", cpu_total=32, memory_total=128 * _GB),
+        Node(name="n2", cpu_total=32, memory_total=128 * _GB),
     ]
     vms = [
-        VM("vm-a", "n1", 2, 8 * _GB),
-        VM("vm-b", "n1", 2, 8 * _GB),
-        VM("vm-c", "n1", 2, 8 * _GB),
-        VM("vm-d", "n1", 2, 8 * _GB),
+        VM(name="vm-a", node="n1", cpu=2, memory=8 * _GB),
+        VM(name="vm-b", node="n1", cpu=2, memory=8 * _GB),
+        VM(name="vm-c", node="n1", cpu=2, memory=8 * _GB),
+        VM(name="vm-d", node="n1", cpu=2, memory=8 * _GB),
     ]
     cluster = _make_cluster(nodes, vms)
 
     migrations = [
-        Migration("vm-a", "n1", "n2"),
-        Migration("vm-b", "n1", "n2"),
-        Migration("vm-c", "n1", "n2"),
-        Migration("vm-d", "n1", "n2"),
+        Migration(vm="vm-a", source="n1", target="n2"),
+        Migration(vm="vm-b", source="n1", target="n2"),
+        Migration(vm="vm-c", source="n1", target="n2"),
+        Migration(vm="vm-d", source="n1", target="n2"),
     ]
     sol = Solution(
         feasible=True,
@@ -356,8 +356,7 @@ def test_max_parallel_splits_layer():
     )
 
     # Without limit: all 4 in one parallel step
-    import dataclasses
-    cluster = dataclasses.replace(cluster, balancing=dataclasses.replace(cluster.balancing, max_parallel_migrations=100))
+    cluster = cluster.model_copy(update={"balancing": cluster.balancing.model_copy(update={"max_parallel_migrations": 100})})
     unlimited = plan_migrations(cluster, sol)
     assert len(unlimited.steps) == 1
     assert len(unlimited.steps[0].migrations) == 4
@@ -385,19 +384,19 @@ def test_max_parallel_splits_layer():
 def test_max_parallel_with_dependencies():
     """max_parallel should not merge across dependency layers."""
     nodes = [
-        Node("n1", 16, 64 * _GB),
-        Node("n2", 16, 64 * _GB),
-        Node("n3", 16, 64 * _GB),
+        Node(name="n1", cpu_total=16, memory_total=64 * _GB),
+        Node(name="n2", cpu_total=16, memory_total=64 * _GB),
+        Node(name="n3", cpu_total=16, memory_total=64 * _GB),
     ]
     vms = [
-        VM("vm-a", "n1", 4, 48 * _GB),
-        VM("vm-b", "n2", 4, 48 * _GB),
+        VM(name="vm-a", node="n1", cpu=4, memory=48 * _GB),
+        VM(name="vm-b", node="n2", cpu=4, memory=48 * _GB),
     ]
     cluster = _make_cluster(nodes, vms)
 
     migrations = [
-        Migration("vm-a", "n1", "n2"),
-        Migration("vm-b", "n2", "n3"),
+        Migration(vm="vm-a", source="n1", target="n2"),
+        Migration(vm="vm-b", source="n2", target="n3"),
     ]
     sol = Solution(
         feasible=True,
@@ -416,20 +415,20 @@ def test_max_parallel_with_dependencies():
 def test_max_parallel_none_is_unlimited():
     """max_parallel=None should behave the same as no limit."""
     nodes = [
-        Node("n1", 32, 128 * _GB),
-        Node("n2", 32, 128 * _GB),
+        Node(name="n1", cpu_total=32, memory_total=128 * _GB),
+        Node(name="n2", cpu_total=32, memory_total=128 * _GB),
     ]
     vms = [
-        VM("vm-a", "n1", 2, 8 * _GB),
-        VM("vm-b", "n1", 2, 8 * _GB),
-        VM("vm-c", "n1", 2, 8 * _GB),
+        VM(name="vm-a", node="n1", cpu=2, memory=8 * _GB),
+        VM(name="vm-b", node="n1", cpu=2, memory=8 * _GB),
+        VM(name="vm-c", node="n1", cpu=2, memory=8 * _GB),
     ]
     cluster = _make_cluster(nodes, vms)
 
     migrations = [
-        Migration("vm-a", "n1", "n2"),
-        Migration("vm-b", "n1", "n2"),
-        Migration("vm-c", "n1", "n2"),
+        Migration(vm="vm-a", source="n1", target="n2"),
+        Migration(vm="vm-b", source="n1", target="n2"),
+        Migration(vm="vm-c", source="n1", target="n2"),
     ]
     sol = Solution(
         feasible=True,
@@ -438,8 +437,7 @@ def test_max_parallel_none_is_unlimited():
         stats=_make_stats(migration_count=3),
     )
 
-    import dataclasses
-    cluster = dataclasses.replace(cluster, balancing=dataclasses.replace(cluster.balancing, max_parallel_migrations=100))
+    cluster = cluster.model_copy(update={"balancing": cluster.balancing.model_copy(update={"max_parallel_migrations": 100})})
     result = plan_migrations(cluster, sol, max_parallel=None)
     assert len(result.steps) == 1
     assert len(result.steps[0].migrations) == 3
@@ -468,14 +466,14 @@ def test_temp_move_respects_pin():
     it must go to n3 (or wherever pin allows, excluding source/target).
     """
     nodes = [
-        Node("n1", 16, 60 * _GB),
-        Node("n2", 16, 60 * _GB),
-        Node("n3", 16, 64 * _GB),
-        Node("n4", 16, 64 * _GB),
+        Node(name="n1", cpu_total=16, memory_total=60 * _GB),
+        Node(name="n2", cpu_total=16, memory_total=60 * _GB),
+        Node(name="n3", cpu_total=16, memory_total=64 * _GB),
+        Node(name="n4", cpu_total=16, memory_total=64 * _GB),
     ]
     vms = [
-        VM("vm-a", "n1", 4, 50 * _GB),
-        VM("vm-b", "n2", 4, 50 * _GB),
+        VM(name="vm-a", node="n1", cpu=4, memory=50 * _GB),
+        VM(name="vm-b", node="n2", cpu=4, memory=50 * _GB),
     ]
     # Pin vm-a to only n1, n2, n3 (not n4)
     constraints = Constraints(
@@ -484,8 +482,8 @@ def test_temp_move_respects_pin():
     cluster = _make_cluster_with_constraints(nodes, vms, constraints)
 
     migrations = [
-        Migration("vm-a", "n1", "n2"),
-        Migration("vm-b", "n2", "n1"),
+        Migration(vm="vm-a", source="n1", target="n2"),
+        Migration(vm="vm-b", source="n2", target="n1"),
     ]
     sol = Solution(
         feasible=True,
@@ -510,15 +508,15 @@ def test_temp_move_respects_anti_affinity():
     So temp move for vm-a must NOT go to n3.
     """
     nodes = [
-        Node("n1", 16, 60 * _GB),
-        Node("n2", 16, 60 * _GB),
-        Node("n3", 16, 64 * _GB),
-        Node("n4", 16, 64 * _GB),
+        Node(name="n1", cpu_total=16, memory_total=60 * _GB),
+        Node(name="n2", cpu_total=16, memory_total=60 * _GB),
+        Node(name="n3", cpu_total=16, memory_total=64 * _GB),
+        Node(name="n4", cpu_total=16, memory_total=64 * _GB),
     ]
     vms = [
-        VM("vm-a", "n1", 4, 50 * _GB),
-        VM("vm-b", "n2", 4, 50 * _GB),
-        VM("vm-c", "n3", 2, 4 * _GB),  # anti-affinity partner on n3
+        VM(name="vm-a", node="n1", cpu=4, memory=50 * _GB),
+        VM(name="vm-b", node="n2", cpu=4, memory=50 * _GB),
+        VM(name="vm-c", node="n3", cpu=2, memory=4 * _GB),  # anti-affinity partner on n3
     ]
     constraints = Constraints(
         anti_affinity=[{"name": "spread", "vms": ["vm-a", "vm-c"]}]
@@ -526,8 +524,8 @@ def test_temp_move_respects_anti_affinity():
     cluster = _make_cluster_with_constraints(nodes, vms, constraints)
 
     migrations = [
-        Migration("vm-a", "n1", "n2"),
-        Migration("vm-b", "n2", "n1"),
+        Migration(vm="vm-a", source="n1", target="n2"),
+        Migration(vm="vm-b", source="n2", target="n1"),
     ]
     sol = Solution(
         feasible=True,
@@ -551,20 +549,20 @@ def test_temp_move_respects_ignore():
     The planner should try another VM in the cycle instead.
     """
     nodes = [
-        Node("n1", 16, 60 * _GB),
-        Node("n2", 16, 60 * _GB),
-        Node("n3", 16, 64 * _GB),
+        Node(name="n1", cpu_total=16, memory_total=60 * _GB),
+        Node(name="n2", cpu_total=16, memory_total=60 * _GB),
+        Node(name="n3", cpu_total=16, memory_total=64 * _GB),
     ]
     vms = [
-        VM("vm-a", "n1", 4, 50 * _GB),
-        VM("vm-b", "n2", 4, 50 * _GB),
+        VM(name="vm-a", node="n1", cpu=4, memory=50 * _GB),
+        VM(name="vm-b", node="n2", cpu=4, memory=50 * _GB),
     ]
     constraints = Constraints(ignore=["vm-a"])
     cluster = _make_cluster_with_constraints(nodes, vms, constraints)
 
     migrations = [
-        Migration("vm-a", "n1", "n2"),
-        Migration("vm-b", "n2", "n1"),
+        Migration(vm="vm-a", source="n1", target="n2"),
+        Migration(vm="vm-b", source="n2", target="n1"),
     ]
     sol = Solution(
         feasible=True,
@@ -583,20 +581,20 @@ def test_temp_move_respects_ignore():
 def test_temp_move_respects_maintenance():
     """Temp node must not be a maintenance node."""
     nodes = [
-        Node("n1", 16, 60 * _GB),
-        Node("n2", 16, 60 * _GB),
-        Node("n3", 16, 64 * _GB, maintenance=True),
-        Node("n4", 16, 64 * _GB),
+        Node(name="n1", cpu_total=16, memory_total=60 * _GB),
+        Node(name="n2", cpu_total=16, memory_total=60 * _GB),
+        Node(name="n3", cpu_total=16, memory_total=64 * _GB, maintenance=True),
+        Node(name="n4", cpu_total=16, memory_total=64 * _GB),
     ]
     vms = [
-        VM("vm-a", "n1", 4, 50 * _GB),
-        VM("vm-b", "n2", 4, 50 * _GB),
+        VM(name="vm-a", node="n1", cpu=4, memory=50 * _GB),
+        VM(name="vm-b", node="n2", cpu=4, memory=50 * _GB),
     ]
     cluster = _make_cluster_with_constraints(nodes, vms)
 
     migrations = [
-        Migration("vm-a", "n1", "n2"),
-        Migration("vm-b", "n2", "n1"),
+        Migration(vm="vm-a", source="n1", target="n2"),
+        Migration(vm="vm-b", source="n2", target="n1"),
     ]
     sol = Solution(
         feasible=True,
@@ -616,21 +614,21 @@ def test_temp_move_respects_maintenance():
 def test_temp_move_respects_ram_capacity():
     """Temp node must have enough RAM for the VM."""
     nodes = [
-        Node("n1", 16, 60 * _GB),
-        Node("n2", 16, 60 * _GB),
-        Node("n3", 16, 64 * _GB),  # has 60GB used already
-        Node("n4", 16, 64 * _GB),  # empty — fits
+        Node(name="n1", cpu_total=16, memory_total=60 * _GB),
+        Node(name="n2", cpu_total=16, memory_total=60 * _GB),
+        Node(name="n3", cpu_total=16, memory_total=64 * _GB),  # has 60GB used already
+        Node(name="n4", cpu_total=16, memory_total=64 * _GB),  # empty — fits
     ]
     vms = [
-        VM("vm-a", "n1", 4, 50 * _GB),
-        VM("vm-b", "n2", 4, 50 * _GB),
-        VM("vm-c", "n3", 2, 60 * _GB),  # fills n3
+        VM(name="vm-a", node="n1", cpu=4, memory=50 * _GB),
+        VM(name="vm-b", node="n2", cpu=4, memory=50 * _GB),
+        VM(name="vm-c", node="n3", cpu=2, memory=60 * _GB),  # fills n3
     ]
     cluster = _make_cluster_with_constraints(nodes, vms)
 
     migrations = [
-        Migration("vm-a", "n1", "n2"),
-        Migration("vm-b", "n2", "n1"),
+        Migration(vm="vm-a", source="n1", target="n2"),
+        Migration(vm="vm-b", source="n2", target="n1"),
     ]
     sol = Solution(
         feasible=True,
@@ -650,15 +648,15 @@ def test_temp_move_respects_ram_capacity():
 def test_temp_move_respects_cpu_capacity():
     """Temp node must have enough CPU (with overcommit) for the VM."""
     nodes = [
-        Node("n1", 16, 60 * _GB),
-        Node("n2", 16, 60 * _GB),
-        Node("n3", 8, 128 * _GB),   # only 8 CPUs, already 7 used
-        Node("n4", 16, 128 * _GB),  # 16 CPUs, empty
+        Node(name="n1", cpu_total=16, memory_total=60 * _GB),
+        Node(name="n2", cpu_total=16, memory_total=60 * _GB),
+        Node(name="n3", cpu_total=8, memory_total=128 * _GB),   # only 8 CPUs, already 7 used
+        Node(name="n4", cpu_total=16, memory_total=128 * _GB),  # 16 CPUs, empty
     ]
     vms = [
-        VM("vm-a", "n1", 4, 50 * _GB),
-        VM("vm-b", "n2", 4, 50 * _GB),
-        VM("vm-c", "n3", 7, 4 * _GB),  # uses 7 of 8 CPUs on n3
+        VM(name="vm-a", node="n1", cpu=4, memory=50 * _GB),
+        VM(name="vm-b", node="n2", cpu=4, memory=50 * _GB),
+        VM(name="vm-c", node="n3", cpu=7, memory=4 * _GB),  # uses 7 of 8 CPUs on n3
     ]
     # cpu_overcommit=1.0 means no overcommit: n3 has 1 CPU free, vm needs 4
     cluster = _make_cluster_with_constraints(
@@ -667,8 +665,8 @@ def test_temp_move_respects_cpu_capacity():
     )
 
     migrations = [
-        Migration("vm-a", "n1", "n2"),
-        Migration("vm-b", "n2", "n1"),
+        Migration(vm="vm-a", source="n1", target="n2"),
+        Migration(vm="vm-b", source="n2", target="n1"),
     ]
     sol = Solution(
         feasible=True,
@@ -688,13 +686,13 @@ def test_temp_move_respects_cpu_capacity():
 def test_unbreakable_cycle():
     """Cycle where no VM can be temp-moved → path_feasible=False."""
     nodes = [
-        Node("n1", 16, 60 * _GB),
-        Node("n2", 16, 60 * _GB),
-        Node("n3", 16, 64 * _GB, maintenance=True),  # only spare, but maintenance
+        Node(name="n1", cpu_total=16, memory_total=60 * _GB),
+        Node(name="n2", cpu_total=16, memory_total=60 * _GB),
+        Node(name="n3", cpu_total=16, memory_total=64 * _GB, maintenance=True),  # only spare, but maintenance
     ]
     vms = [
-        VM("vm-a", "n1", 4, 50 * _GB),
-        VM("vm-b", "n2", 4, 50 * _GB),
+        VM(name="vm-a", node="n1", cpu=4, memory=50 * _GB),
+        VM(name="vm-b", node="n2", cpu=4, memory=50 * _GB),
     ]
     # Both pinned away from n3
     constraints = Constraints(
@@ -706,8 +704,8 @@ def test_unbreakable_cycle():
     cluster = _make_cluster_with_constraints(nodes, vms, constraints)
 
     migrations = [
-        Migration("vm-a", "n1", "n2"),
-        Migration("vm-b", "n2", "n1"),
+        Migration(vm="vm-a", source="n1", target="n2"),
+        Migration(vm="vm-b", source="n2", target="n1"),
     ]
     sol = Solution(
         feasible=True,
@@ -722,25 +720,89 @@ def test_unbreakable_cycle():
     assert result.steps == []
 
 
+def test_long_cycle_with_full_nodes_is_path_infeasible():
+    """Regression test for issue #1: long cycle where node-spare (2 GB) cannot
+    accommodate vm-0 (3 GB), making the migration sequence unreachable even
+    though the solver found a valid final placement.
+
+    The iterative cycle-breaker should exhaust all parking options and return
+    path_feasible=False, triggering solve_reachable to retry or report failure.
+    """
+    nodes = [
+        Node(name="node-spare-init", cpu_total=2, memory_total=2 * _GB),
+        Node(name="node-0", cpu_total=4, memory_total=4 * _GB),
+        Node(name="node-1", cpu_total=4, memory_total=4 * _GB),
+        Node(name="node-spare", cpu_total=2, memory_total=2 * _GB),
+    ]
+    vms = [
+        VM(name="vm-0", node="node-1", cpu=3, memory=3 * _GB),
+        VM(name="vm-1", node="node-0", cpu=1, memory=1 * _GB),
+        VM(name="vm-2", node="node-0", cpu=1, memory=1 * _GB),
+        VM(name="vm-3", node="node-1", cpu=1, memory=1 * _GB),
+        VM(name="vm-4", node="node-0", cpu=2, memory=2 * _GB),
+        VM(name="vm-spare", node="node-spare-init", cpu=2, memory=2 * _GB),
+    ]
+    constraints = Constraints(pin=[
+        {"vm": "vm-0", "nodes": ["node-0", "node-spare"]},
+        {"vm": "vm-1", "nodes": ["node-1", "node-spare"]},
+        {"vm": "vm-2", "nodes": ["node-1", "node-spare"]},
+        {"vm": "vm-3", "nodes": ["node-0", "node-spare"]},
+        {"vm": "vm-4", "nodes": ["node-1", "node-spare"]},
+        {"vm": "vm-spare", "nodes": ["node-spare"]},
+    ])
+    cluster = Cluster(
+        name="long cycle with full nodes",
+        description="",
+        balancing=Balancing(cpu_overcommit=1, max_node_inflow=10),
+        nodes=nodes,
+        vms=vms,
+        constraints=constraints,
+        expect=Expect(),
+    )
+    # Valid final placement found by solver
+    sol = Solution(
+        feasible=True,
+        placements={
+            "vm-0": "node-0", "vm-1": "node-1", "vm-2": "node-1",
+            "vm-3": "node-0", "vm-4": "node-1", "vm-spare": "node-spare",
+        },
+        migrations=[
+            Migration(vm="vm-0", source="node-1", target="node-0"),
+            Migration(vm="vm-1", source="node-0", target="node-1"),
+            Migration(vm="vm-2", source="node-0", target="node-1"),
+            Migration(vm="vm-3", source="node-1", target="node-0"),
+            Migration(vm="vm-4", source="node-0", target="node-1"),
+            Migration(vm="vm-spare", source="node-spare-init", target="node-spare"),
+        ],
+        stats=_make_stats(migration_count=6),
+    )
+
+    result = plan_migrations(cluster, sol)
+    assert result.path_feasible is False, (
+        "Plan should be path_feasible=False: node-spare (2 GB) cannot park "
+        "vm-0 (3 GB), so the cycle cannot be fully broken."
+    )
+
+
 def test_temp_move_respects_evacuate_node():
     """Temp node must not be the evacuate node."""
     nodes = [
-        Node("n1", 16, 60 * _GB),
-        Node("n2", 16, 60 * _GB),
-        Node("n3", 16, 64 * _GB),
-        Node("n4", 16, 64 * _GB),
+        Node(name="n1", cpu_total=16, memory_total=60 * _GB),
+        Node(name="n2", cpu_total=16, memory_total=60 * _GB),
+        Node(name="n3", cpu_total=16, memory_total=64 * _GB),
+        Node(name="n4", cpu_total=16, memory_total=64 * _GB),
     ]
     vms = [
-        VM("vm-a", "n1", 4, 50 * _GB),
-        VM("vm-b", "n2", 4, 50 * _GB),
+        VM(name="vm-a", node="n1", cpu=4, memory=50 * _GB),
+        VM(name="vm-b", node="n2", cpu=4, memory=50 * _GB),
     ]
     cluster = _make_cluster_with_constraints(
         nodes, vms, evacuate_node="n3",
     )
 
     migrations = [
-        Migration("vm-a", "n1", "n2"),
-        Migration("vm-b", "n2", "n1"),
+        Migration(vm="vm-a", source="n1", target="n2"),
+        Migration(vm="vm-b", source="n2", target="n1"),
     ]
     sol = Solution(
         feasible=True,

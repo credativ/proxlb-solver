@@ -1,0 +1,23 @@
+name: "LXC Balancing — Simple Spread"
+description: >
+  Cluster with 4 identical Containers (4 CPU each). Initially 3 on node-A,
+  1 on node-B. Solver should move one CT to achieve perfect CPU balance (50%/50%).
+
+balancing:
+  method: cpu
+  balanciness: 5
+
+nodes:
+  node-A: {cpu_total: 16, memory_total_gb: 64}
+  node-B: {cpu_total: 16, memory_total_gb: 64}
+
+vms:
+  ct-1: {node: node-A, cpu: 4, memory_gb: 8, type: "ct"}
+  ct-2: {node: node-A, cpu: 4, memory_gb: 8, type: "ct"}
+  ct-3: {node: node-A, cpu: 4, memory_gb: 8, type: "ct"}
+  ct-4: {node: node-B, cpu: 4, memory_gb: 8, type: "ct"}
+
+expect:
+  feasible: true
+  spread_improved: true
+  max_migrations: 1

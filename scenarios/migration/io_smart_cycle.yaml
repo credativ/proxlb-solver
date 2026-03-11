@@ -16,8 +16,8 @@ nodes:
 vms:
   # vm-a is the pressure hog on node-A. It needs 40GB space on B.
   vm-a: {node: node-A, cpu: 1, memory_gb: 4, disks: {local: 40}, io_pressure: 20.0}
-  
-  # vm-b is a quiet VM on node-B, but it occupies 45GB. 
+
+  # vm-b is a quiet VM on node-B, but it occupies 45GB.
   # Node-B only has 50GB free. 50 + 45 = 95. If vm-b moves to A, node-B has 95 free.
   vm-b: {node: node-B, cpu: 1, memory_gb: 4, disks: {local: 45}, io_pressure: 0.0}
 

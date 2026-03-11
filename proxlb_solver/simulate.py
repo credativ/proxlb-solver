@@ -5,20 +5,20 @@ from proxlb_solver.adapter import from_proxlb_data
 from proxlb_solver.solver import solve_reachable
 from proxlb_solver.reporter import print_report
 
-def run_simulation(dump_path: str):
+def run_simulation(dump_path: str) -> None:
     with open(dump_path) as f:
         data = json.load(f)
-    
+
     print(f"--- Loading data from {dump_path} ---")
     cluster = from_proxlb_data(data)
-    
+
     print(f"--- Cluster: {cluster.name} ({len(cluster.nodes)} nodes, {len(cluster.vms)} VMs) ---")
-    
+
     print("--- Calculating Optimal Reachable Placement ---")
     solution, plan = solve_reachable(cluster, quiet=False)
-    
+
     print_report(cluster, solution)
-    
+
     if solution and solution.feasible and plan and plan.steps:
         print("\n[Migration Plan Summary]")
         for step in plan.steps:

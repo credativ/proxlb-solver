@@ -12,7 +12,7 @@ balancing:
   w_stickiness: 0
 
 nodes:
-  node-A: 
+  node-A:
     cpu_total: 16
     memory_total_gb: 64
     storage_free: {local: 10} # Only 10GB free

@@ -204,3 +204,30 @@ def test_pin_vms_empty_set_adds_no_extra_pins():
 
     cluster = from_proxlb_data(_DATA_WITH_GUEST, pin_vms=set())
     assert not any(r["vm"] == "vm-pinned" for r in cluster.constraints.pin)
+
+
+# ---------------------------------------------------------------------------
+# LXC Container support tests
+# ---------------------------------------------------------------------------
+
+def test_adapter_handles_lxc_type():
+    """Adapter must correctly map ProxLB guest type 'ct' to VM.vm_type."""
+    from proxlb_solver.adapter import from_proxlb_data
+
+    data = {
+        "meta": {"cluster_name": "test", "balancing": {}},
+        "nodes": {"node1": {"cpu_total": 4, "memory_total": 8 * _GB, "disk_free": 0, "maintenance": False}},
+        "guests": {
+            "container-1": {
+                "node_current": "node1",
+                "cpu_total": 1,
+                "memory_total": 1 * _GB,
+                "type": "ct",
+                "priority": 2,
+            }
+        },
+    }
+    cluster = from_proxlb_data(data)
+    ct = next(v for v in cluster.vms if v.name == "container-1")
+
+    assert ct.vm_type == "ct", f"Expected vm_type='ct', got {ct.vm_type!r}"

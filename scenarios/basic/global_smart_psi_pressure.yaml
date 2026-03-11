@@ -16,7 +16,7 @@ nodes:
   node-B: {cpu_total: 10, memory_total_gb: 64, cpu_pressure: 20, memory_pressure: 20, io_pressure: 20}
 
 vms:
-  vm-p1: 
+  vm-p1:
     node: node-B
     cpu: 1
     memory_gb: 4

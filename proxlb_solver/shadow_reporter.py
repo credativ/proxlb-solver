@@ -280,7 +280,7 @@ def _card(label: str, value: str, color: str = "") -> str:
 # ---------------------------------------------------------------------------
 
 def _parse_run(path: Path) -> dict[str, Any]:
-    events: list[dict] = []
+    events: list[dict[str, Any]] = []
     with open(path, encoding="utf-8") as fh:
         for line in fh:
             line = line.strip()
@@ -515,7 +515,7 @@ def _render_run(run: dict[str, Any], output_dir: Path) -> None:
         pins = [c for c in constraints if c["type"] == "pin"]
         ign  = [c for c in constraints if c["type"] == "ignore"]
 
-        def _group_table(items: list, heading: str, cols: list[str], row_fn) -> str:
+        def _group_table(items: list[Any], heading: str, cols: list[str], row_fn: Any) -> str:
             if not items:
                 return ""
             hdr  = "".join(f"<th>{c}</th>" for c in cols)
@@ -528,13 +528,13 @@ def _render_run(run: dict[str, Any], output_dir: Path) -> None:
                 "</table></div>"
             )
 
-        def _aff_row(c):
+        def _aff_row(c: Any) -> str:
             orig  = _origin_chip(c.get("origin", "plb"))
             vms   = "  ".join(h(v) for v in c.get("vms", []))
             mode  = "hard" if c.get("hard", True) else '<span style="color:var(--muted)">soft</span>'
             return f"<tr><td class='mono'>{h(c.get('name',''))}</td><td>{orig}</td><td>{vms}</td><td>{mode}</td></tr>"
 
-        def _pin_row(c):
+        def _pin_row(c: Any) -> str:
             nodes   = ", ".join(h(n) for n in c.get("nodes", []))
             origins = "".join(
                 _origin_chip(o.get("origin", "?"), o.get("source", ""))
@@ -611,7 +611,7 @@ def _render_run(run: dict[str, Any], output_dir: Path) -> None:
     _cs_guests = (run.get("cluster_state") or {}).get("guests", {})
     _GiB_plan  = 1024 ** 3
     if plan_steps:
-        by_step: dict[int, list] = {}
+        by_step: dict[int, list[Any]] = {}
         for ps in plan_steps:
             by_step.setdefault(ps.get("step", 0), []).append(ps)
 
@@ -701,8 +701,8 @@ def _render_run(run: dict[str, Any], output_dir: Path) -> None:
 
         # Configured allocation per node — this is what the solver optimises.
         # Use this consistently for bars and gap; RSS appears only in VM details.
-        mem_cfg_before: dict = {n: 0 for n in nodes_data}
-        cpu_alloc_before: dict = {n: 0 for n in nodes_data}
+        mem_cfg_before: dict[str, int] = {n: 0 for n in nodes_data}
+        cpu_alloc_before: dict[str, int] = {n: 0 for n in nodes_data}
         for gd in guests_data.values():
             nd_name = gd.get("node")
             if nd_name in mem_cfg_before:
@@ -711,7 +711,7 @@ def _render_run(run: dict[str, Any], output_dir: Path) -> None:
 
         # Actual CPU load per node — optional, requires cpu_usage in guest data
         has_cpu_usage = any("cpu_usage" in gd for gd in guests_data.values())
-        cpu_load_before: dict = {n: 0.0 for n in nodes_data}
+        cpu_load_before: dict[str, float] = {n: 0.0 for n in nodes_data}
         if has_cpu_usage:
             for gd in guests_data.values():
                 nd_name = gd.get("node")
@@ -719,8 +719,8 @@ def _render_run(run: dict[str, Any], output_dir: Path) -> None:
                     cpu_load_before[nd_name] += float(gd["cpu_usage"])
 
         # Project "after" state by applying plan migrations to configured values
-        mem_cfg_after: dict = dict(mem_cfg_before)
-        cpu_after: dict     = dict(cpu_alloc_before)
+        mem_cfg_after: dict[str, int] = dict(mem_cfg_before)
+        cpu_after: dict[str, int]     = dict(cpu_alloc_before)
         for ps in plan_steps_ba:
             vm_name = ps.get("vm")
             src     = ps.get("source")
@@ -735,7 +735,7 @@ def _render_run(run: dict[str, Any], output_dir: Path) -> None:
                 mem_cfg_after[tgt] = mem_cfg_after.get(tgt, 0) + vm_mem
                 cpu_after[tgt]     = cpu_after.get(tgt, 0) + vm_cpu
 
-        cpu_load_after: dict = dict(cpu_load_before)
+        cpu_load_after: dict[str, float] = dict(cpu_load_before)
         if has_cpu_usage:
             for ps in plan_steps_ba:
                 vm_name = ps.get("vm")
@@ -751,14 +751,14 @@ def _render_run(run: dict[str, Any], output_dir: Path) -> None:
         show_after = bool(plan_steps_ba)
 
         # VM distribution before and after (for VM dist sub-table)
-        vms_before: dict = {n: [] for n in nodes_data}
+        vms_before: dict[str, list[Any]] = {n: [] for n in nodes_data}
         for vm_name, gd in sorted(guests_data.items()):
             nd_name = gd.get("node")
             if nd_name in vms_before:
                 vms_before[nd_name].append((vm_name, gd.get("memory", 0), gd.get("cpu", 0)))
 
-        vms_after: dict = {n: list(vl) for n, vl in vms_before.items()}
-        moved: set = set()
+        vms_after: dict[str, list[Any]] = {n: list(vl) for n, vl in vms_before.items()}
+        moved: set[str] = set()
         for ps in plan_steps_ba:
             vm_name = ps.get("vm")
             src     = ps.get("source")
@@ -789,7 +789,7 @@ def _render_run(run: dict[str, Any], output_dir: Path) -> None:
             return '<span style="color:var(--muted)">—</span>'
 
         def _cpu_cell(alloc_pct: float, vcpus: int, cpu_tot_n: int,
-                      bar_cls: str = "bar-fill-neutral", load_pct=None) -> str:
+                      bar_cls: str = "bar-fill-neutral", load_pct: float | None = None) -> str:
             """CPU bar cell: single alloc bar, or dual bar when load_pct given."""
             alloc_label = f'{vcpus}&thinsp;/&thinsp;{cpu_tot_n}&ensp;{alloc_pct:.0f}%'
             if load_pct is not None:
@@ -815,7 +815,7 @@ def _render_run(run: dict[str, Any], output_dir: Path) -> None:
                 f'<span class="mono">{alloc_label}</span></div>'
             )
 
-        def _vm_cell(vm_list: list) -> str:
+        def _vm_cell(vm_list: list[Any]) -> str:
             if not vm_list:
                 return '<span style="color:var(--muted);font-style:italic">empty</span>'
             parts = []
@@ -844,7 +844,7 @@ def _render_run(run: dict[str, Any], output_dir: Path) -> None:
             return "<br>".join(parts)
 
         # Per-node metrics using configured allocation throughout
-        node_metrics: dict = {}
+        node_metrics: dict[str, Any] = {}
         mp_b_all: list[float] = []
         mp_a_all: list[float] = []
         for node_name in sorted(nodes_data):
@@ -1055,7 +1055,7 @@ def _render_run(run: dict[str, Any], output_dir: Path) -> None:
 
     if active_step_results:
         # Group results: retry → step → [events]
-        by_retry_step: dict[int, dict[int, list]] = {}
+        by_retry_step: dict[int, dict[int, list[Any]]] = {}
         for ev in active_step_results:
             r = ev.get("step_retry", 0)
             s = ev.get("step", 0)
@@ -1067,7 +1067,7 @@ def _render_run(run: dict[str, Any], output_dir: Path) -> None:
         n_success = sum(1 for ev in active_step_results if ev.get("success"))
         n_failed  = len(active_step_results) - n_success
 
-        def _duration(ev: dict) -> str:
+        def _duration(ev: dict[str, Any]) -> str:
             """Rough wall-clock duration: plan_step.ts → result.ts."""
             try:
                 ps = plan_step_map.get((ev.get("step"), ev.get("vm")), {})
@@ -1104,7 +1104,7 @@ def _render_run(run: dict[str, Any], output_dir: Path) -> None:
             # Flatten all VMs across solver steps in order; execution is always
             # sequential (Balancing handles one VM at a time internally).
             steps_in_pass = sorted(by_retry_step[retry_num].keys())
-            pass_evs: list[dict] = []
+            pass_evs: list[dict[str, Any]] = []
             for step_num in steps_in_pass:
                 pass_evs.extend(by_retry_step[retry_num][step_num])
 
@@ -1112,7 +1112,7 @@ def _render_run(run: dict[str, Any], output_dir: Path) -> None:
             # steps — i.e. dependency ordering actually mattered this pass.
             show_step_col = len(steps_in_pass) > 1
 
-            rows: list[str] = []
+            pass_rows: list[str] = []
             for seq, ev in enumerate(pass_evs, start=1):
                 step_num = ev.get("step", 0)
                 vm       = ev.get("vm", "")
@@ -1144,7 +1144,7 @@ def _render_run(run: dict[str, Any], output_dir: Path) -> None:
                     f'<td class="mono" style="color:var(--muted)">{step_num}</td>'
                     if show_step_col else ""
                 )
-                rows.append(
+                pass_rows.append(
                     "<tr>"
                     f'<td class="mono" style="color:var(--muted);text-align:right">{seq}</td>'
                     f'<td class="mono">{h(vm)}</td>'
@@ -1166,7 +1166,7 @@ def _render_run(run: dict[str, Any], output_dir: Path) -> None:
                 "<th style='text-align:center'>Result</th>"
                 "<th style='text-align:right'>Duration</th>"
                 "</tr></thead>"
-                f"<tbody>{''.join(rows)}</tbody>"
+                f"<tbody>{''.join(pass_rows)}</tbody>"
                 "</table></div>"
             )
 

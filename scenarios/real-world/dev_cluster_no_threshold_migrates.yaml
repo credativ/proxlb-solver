@@ -1,0 +1,88 @@
+name: "Dev/Staging Cluster — Same Cluster, No Threshold Gate Allows Migrations"
+description: >
+  This is the same three-node dev/staging cluster as in "Dev/Staging Cluster —
+  Threshold Guards Against Unnecessary Churn", but with the memory_threshold
+  removed entirely.
+
+  The hardware and VMs are unchanged: pve-dev-02 is the most-loaded node at
+  37.5%, pve-dev-01 at 31.25%, and pve-dev-03 at 18.75%. With balanciness=5
+  (Aggressive), the gap threshold is 0% — any imbalance at all qualifies.
+
+  In the original scenario, memory_threshold=60 acted as a circuit breaker:
+  no migrations unless a node exceeds 60% utilization. Since nobody topped 60%,
+  the solver did nothing.
+
+  Without that safety gate, balanciness=5 runs unconstrained. The effective
+  weighted gap between pve-dev-02 and pve-dev-03 is 37.5% — far above 0%.
+  The solver will now rebalance, moving load from pve-dev-02 to pve-dev-03.
+
+  This illustrates the purpose of memory_threshold: it prevents balanciness=5
+  from becoming overly eager on a cluster that has plenty of headroom. The
+  "aggressive" label refers to the threshold sensitivity, not to ignoring your
+  explicit circuit breaker.
+
+  Expected outcome: spread is improved, at least one VM migrates toward
+  pve-dev-03. Compare with dev_cluster_threshold_guard.yaml — only the
+  memory_threshold line is removed.
+
+balancing:
+  method: memory
+  balanciness: 5        # Aggressive — no threshold gate this time
+  cpu_overcommit: 2.0
+  # memory_threshold intentionally absent: no circuit breaker
+
+nodes:
+  pve-dev-01:
+    cpu_total: 16
+    memory_total_gb: 128
+  pve-dev-02:
+    cpu_total: 16
+    memory_total_gb: 128
+  pve-dev-03:
+    cpu_total: 16
+    memory_total_gb: 128
+
+vms:
+  # pve-dev-01: 40 GB used (31.25%)
+  dev-env-alice:
+    node: pve-dev-01
+    cpu: 4
+    memory_gb: 24
+    type: vm
+  dev-env-bob:
+    node: pve-dev-01
+    cpu: 4
+    memory_gb: 16
+    type: vm
+
+  # pve-dev-02: 48 GB used (37.5%) — most loaded
+  staging-api:
+    node: pve-dev-02
+    cpu: 4
+    memory_gb: 32
+    type: vm
+  staging-db:
+    node: pve-dev-02
+    cpu: 4
+    memory_gb: 16
+    type: vm
+
+  # pve-dev-03: 24 GB used (18.75%) — least loaded, will receive VMs
+  qa-env-01:
+    node: pve-dev-03
+    cpu: 4
+    memory_gb: 16
+    type: vm
+  qa-env-02:
+    node: pve-dev-03
+    cpu: 2
+    memory_gb: 8
+    type: vm
+
+# Effective weighted gap (priority=2): (48*2 - 24*2) / 128 = 37.5%.
+# balanciness=5 threshold is 0.0%. 37.5% > 0% → rebalancing triggered.
+# Without memory_threshold, the gate is absent → solver acts.
+expect:
+  feasible: true
+  constraints_satisfied: true
+  spread_improved: true
