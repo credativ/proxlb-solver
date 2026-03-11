@@ -57,11 +57,12 @@ def _get_node_load_and_capacity(cluster: Cluster, node_name: str, resource_type:
     node = next(n for n in cluster.nodes if n.name == node_name)
     vms_on_node = [vm for vm in cluster.vms if vm.node == node_name]
 
+    usage: float
     if resource_type == "cpu":
         capacity = max(1.0, float(node.cpu_total - node.cpu_reserve))
         if bal.mode == "assigned":
             # Assigned Mode: Use sum of configured vCPUs
-            usage = sum(vm.cpu * vm.priority for vm in vms_on_node)
+            usage = float(sum(vm.cpu * vm.priority for vm in vms_on_node))
         else:
             # Used Mode (Default): Use sum of actual CPU core usage
             usage = sum(vm.cpu_usage * vm.priority for vm in vms_on_node)
@@ -69,12 +70,12 @@ def _get_node_load_and_capacity(cluster: Cluster, node_name: str, resource_type:
     elif resource_type == "memory":
         capacity = max(1.0, float(node.memory_total - node.memory_reserve))
         # RAM balancing always uses configured allocation (most critical resource)
-        usage = sum(vm.memory * vm.priority for vm in vms_on_node)
+        usage = float(sum(vm.memory * vm.priority for vm in vms_on_node))
 
     elif resource_type == "disk" or resource_type == "io":
         # Disk balancing looks at the sum of all local virtual disks
         capacity = max(1.0, float(sum(node.storage_free.values())))
-        usage = sum(sum(vm.disks.values()) * vm.priority for vm in vms_on_node)
+        usage = float(sum(sum(vm.disks.values()) * vm.priority for vm in vms_on_node))
 
     else:
         return 0.0, 1.0
@@ -94,11 +95,13 @@ def _initial_load_gap_single(cluster: Cluster, resource_type: str, use_psi: bool
     for node in cluster.nodes:
         if node.maintenance: continue
 
+        usage: float
+        capacity: float
         if use_psi:
             # Pressure is always relative to a fixed 100% capacity per node
             vms_on_node = [vm for vm in cluster.vms if vm.node == node.name]
-            p_val = lambda v: v.cpu_pressure if resource_type == "cpu" else v.memory_pressure if resource_type == "memory" else v.io_pressure
-            usage = sum(p_val(vm) * vm.priority for vm in vms_on_node)
+            p_val = lambda v: v.cpu_pressure if resource_type == "cpu" else v.memory_pressure if resource_type == "memory" else v.io_pressure  # noqa: E731
+            usage = float(sum(p_val(vm) * vm.priority for vm in vms_on_node))  # type: ignore[no-untyped-call]
             capacity = 100.0
         else:
             usage, capacity = _get_node_load_and_capacity(cluster, node.name, resource_type)
@@ -325,7 +328,7 @@ def solve(cluster: Cluster, time_limit_s: float = 30.0, forbidden_placements: li
     # 8. Optimization Objective (Gap Minimization)
     max_load_val = _LOAD_SCALE * 15
 
-    def add_resource_gap(resource_type, use_psi=False):
+    def add_resource_gap(resource_type: str, use_psi: bool = False) -> "cp_model.IntVar":
         """Helper to create balanced-load variables."""
         node_loads = []
         for j, node in enumerate(nodes):
@@ -333,19 +336,19 @@ def solve(cluster: Cluster, time_limit_s: float = 30.0, forbidden_placements: li
 
             if use_psi:
                 cap = 100
-                res_p = lambda v: v.cpu_pressure if resource_type == "cpu" else v.memory_pressure if resource_type == "memory" else v.io_pressure
-                used = sum(int(res_p(vms[i]) * vms[i].priority * _LOAD_SCALE) * x[i][j] for i in range(len(vms)))
+                res_p = lambda v: v.cpu_pressure if resource_type == "cpu" else v.memory_pressure if resource_type == "memory" else v.io_pressure  # noqa: E731
+                used = sum(int(res_p(vms[i]) * vms[i].priority * _LOAD_SCALE) * x[i][j] for i in range(len(vms)))  # type: ignore[misc, no-untyped-call]
             else:
                 if resource_type == "cpu":
                     cap = max(1, node.cpu_total - node.cpu_reserve)
-                    if bal.mode == "assigned": used = sum(vms[i].cpu * vms[i].priority * _LOAD_SCALE * x[i][j] for i in range(len(vms)))
-                    else: used = sum(int(vms[i].cpu_usage * vms[i].priority * _LOAD_SCALE) * x[i][j] for i in range(len(vms)))
+                    if bal.mode == "assigned": used = sum(vms[i].cpu * vms[i].priority * _LOAD_SCALE * x[i][j] for i in range(len(vms)))  # type: ignore[misc]
+                    else: used = sum(int(vms[i].cpu_usage * vms[i].priority * _LOAD_SCALE) * x[i][j] for i in range(len(vms)))  # type: ignore[misc]
                 elif resource_type == "memory":
                     cap = max(1, (node.memory_total - node.memory_reserve) // _MB)
-                    used = sum((vms[i].memory * vms[i].priority // _MB) * _LOAD_SCALE * x[i][j] for i in range(len(vms)))
+                    used = sum((vms[i].memory * vms[i].priority // _MB) * _LOAD_SCALE * x[i][j] for i in range(len(vms)))  # type: ignore[misc]
                 else: # disk / io
                     cap = max(1, sum(node.storage_free.values()) // _MB)
-                    used = sum((sum(vms[i].disks.values()) * vms[i].priority // _MB) * _LOAD_SCALE * x[i][j] for i in range(len(vms)))
+                    used = sum((sum(vms[i].disks.values()) * vms[i].priority // _MB) * _LOAD_SCALE * x[i][j] for i in range(len(vms)))  # type: ignore[misc]
 
             lv = model.new_int_var(0, max_load_val, f"l_{resource_type}_{'psi' if use_psi else 'u'}_{node.name}")
             model.add_division_equality(lv, used, model.new_constant(cap))
@@ -430,7 +433,10 @@ def solve_reachable(cluster: Cluster, total_time_limit_s: float = 60.0, max_retr
     Ensures that the found solution is reachable via a safe sequence
     of migrations (no deadlocks).
     """
-    forbidden, last_sol, last_plan, start = [], None, None, time.monotonic()
+    forbidden: list[dict[str, str]] = []
+    last_sol: Solution | None = None
+    last_plan: MigrationPlan | None = None
+    start = time.monotonic()
     for attempt in range(max_retries + 1):
         rem = total_time_limit_s - (time.monotonic() - start)
         if rem <= 0: break
@@ -438,7 +444,9 @@ def solve_reachable(cluster: Cluster, total_time_limit_s: float = 60.0, max_retr
         # 1. Try to find an optimal distribution
         sol = solve(cluster, time_limit_s=max(1.0, rem), forbidden_placements=forbidden)
         if not sol.feasible:
-            if last_sol: return last_sol.model_copy(update={"path_feasible": False, "reachability_attempts": attempt + 1}), last_plan
+            if last_sol:
+                assert last_plan is not None
+                return last_sol.model_copy(update={"path_feasible": False, "reachability_attempts": attempt + 1}), last_plan
             return sol, plan_migrations(cluster, sol)
 
         # 2. Check if there is an executable path
@@ -450,5 +458,7 @@ def solve_reachable(cluster: Cluster, total_time_limit_s: float = 60.0, max_retr
         forbidden.append({vm: sol.placements[vm] for vm in plan.unbreakable_cycle if vm in sol.placements})
         if not quiet: logger.info(f"  [solve_reachable] Attempt {attempt+1}: Cycle {plan.unbreakable_cycle}. Retrying...")
 
-    if last_sol: return last_sol.model_copy(update={"path_feasible": False, "reachability_attempts": attempt + 1}), last_plan
+    if last_sol:
+        assert last_plan is not None
+        return last_sol.model_copy(update={"path_feasible": False, "reachability_attempts": attempt + 1}), last_plan
     return sol, plan_migrations(cluster, sol)

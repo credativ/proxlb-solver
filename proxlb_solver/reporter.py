@@ -16,22 +16,23 @@ def _compute_single_gap(cluster: Cluster, placements: Dict[str, str], metric: st
     vm_map = {v.name: v for v in cluster.vms}
     for node in cluster.nodes:
         if node.maintenance: continue
+        cap: float
         if metric == "cpu":
             # Priority weights the impact of load on the gap
             used = sum(vm_map[v.name].cpu_usage * vm_map[v.name].priority for v in cluster.vms if placements.get(v.name) == node.name)
-            cap = node.cpu_total
+            cap = float(node.cpu_total)
         elif metric == "cpu_psi":
             used = sum(vm_map[v.name].cpu_pressure * vm_map[v.name].priority for v in cluster.vms if placements.get(v.name) == node.name)
             cap = 100.0
         elif metric == "memory":
             used = sum(vm_map[v.name].memory * vm_map[v.name].priority for v in cluster.vms if placements.get(v.name) == node.name)
-            cap = node.memory_total
+            cap = float(node.memory_total)
         elif metric == "memory_psi":
             used = sum(vm_map[v.name].memory_pressure * vm_map[v.name].priority for v in cluster.vms if placements.get(v.name) == node.name)
             cap = 100.0
         elif metric == "io_usage":
             used = sum(sum(vm_map[v.name].disks.values()) * vm_map[v.name].priority for v in cluster.vms if placements.get(v.name) == node.name)
-            cap = sum(node.storage_free.values()) or 1
+            cap = float(sum(node.storage_free.values()) or 1)
         elif metric == "io_psi":
             used = sum(vm_map[v.name].io_pressure * vm_map[v.name].priority for v in cluster.vms if placements.get(v.name) == node.name)
             cap = 100.0
@@ -68,9 +69,10 @@ def _compute_load_gap(cluster: Cluster, placements: Dict[str, str]) -> float:
     loads = []
     for node in cluster.nodes:
         if node.maintenance: continue
+        cap: float
         if method == "cpu":
             used = sum(v.cpu_usage * v.priority for v in cluster.vms if placements.get(v.name) == node.name)
-            cap = node.cpu_total
+            cap = float(node.cpu_total)
         elif method == "cpu_psi":
             used = sum(v.cpu_pressure * v.priority for v in cluster.vms if placements.get(v.name) == node.name)
             cap = 100.0
@@ -82,7 +84,7 @@ def _compute_load_gap(cluster: Cluster, placements: Dict[str, str]) -> float:
             cap = 100.0
         else: # memory
             used = sum(v.memory * v.priority for v in cluster.vms if placements.get(v.name) == node.name)
-            cap = node.memory_total
+            cap = float(node.memory_total)
         loads.append(used / cap if cap else 0)
     return max(loads) - min(loads) if loads else 0.0
 
@@ -92,7 +94,7 @@ def _initial_load_gap(cluster: Cluster) -> float:
 
 # ── Rule-Origin Helpers ──
 
-def _vm_rule_origins(vm_name: str, cluster) -> str:
+def _vm_rule_origins(vm_name: str, cluster: Cluster) -> str:
     """Return a comma-separated list of affinity/anti-affinity rule names for a VM.
 
     Format: 'rule-name (origin)', e.g. 'pve-core-group (pve), plb-tag (plb)'.
@@ -115,7 +117,7 @@ def _vm_rule_origins(vm_name: str, cluster) -> str:
 
 # ── Reporting ──
 
-def print_report(cluster: Cluster, solution: Solution):
+def print_report(cluster: Cluster, solution: Solution) -> None:
     """Print a terminal report of the solution."""
     from rich.console import Console
     from rich.table import Table
@@ -151,7 +153,7 @@ def print_report(cluster: Cluster, solution: Solution):
     for node in cluster.nodes:
         if node.maintenance: continue
 
-        def get_load_str(placements):
+        def get_load_str(placements: Dict[str, str]) -> str:
             # Show the primary metric for the chosen method
             if method == "cpu":
                 u = sum(vm_map[v].cpu_usage for v, n in placements.items() if n == node.name)
@@ -202,11 +204,11 @@ def _get_node_load_pct(cluster: Cluster, node: Node, placements: Dict[str, str])
     if method.endswith("psi"):
         # Sum of guest footprints
         p_field = "cpu_pressure" if "cpu" in method else "memory_pressure" if "memory" in method else "io_pressure"
-        return sum(getattr(vm_map[v], p_field) for v in vms_here) / 100.0
+        return sum(float(getattr(vm_map[v], p_field)) for v in vms_here) / 100.0
     # memory
-    return sum(vm_map[v].memory for v in vms_here) / node.memory_total if node.memory_total else 0
+    return sum(vm_map[v].memory for v in vms_here) / node.memory_total if node.memory_total else 0.0
 
-def write_junit_report(results, path):
+def write_junit_report(results: Any, path: Any) -> None:
     """Write test results to JUnit XML format."""
     suite = ET.Element("testsuite", {
         "name": "ProxLB Solver Scenarios",
@@ -413,11 +415,11 @@ def _node_load_pct(cluster: Cluster, node: Node, placements: Dict[str, str]) -> 
     vms_here = [v for v, n in placements.items() if n == node.name]
     method = cluster.balancing.method
     if method == "cpu":
-        return sum(vm_map[v].cpu_usage for v in vms_here) / node.cpu_total if node.cpu_total else 0
+        return sum(vm_map[v].cpu_usage for v in vms_here) / node.cpu_total if node.cpu_total else 0.0
     if "psi" in method:
         field = "cpu_pressure" if "cpu" in method else "memory_pressure" if "memory" in method else "io_pressure"
-        return sum(getattr(vm_map[v], field) for v in vms_here) / 100.0
-    return sum(vm_map[v].memory for v in vms_here) / node.memory_total if node.memory_total else 0
+        return sum(float(getattr(vm_map[v], field)) for v in vms_here) / 100.0
+    return sum(vm_map[v].memory for v in vms_here) / node.memory_total if node.memory_total else 0.0
 
 
 def write_markdown_report(
@@ -511,7 +513,7 @@ def write_markdown_report(
             L.append("")
 
         # Node utilization
-        initial = {v.name: v.node for v in cluster.vms}
+        initial_node_placements = {v.name: v.node for v in cluster.vms}
         L.append("#### Node Utilization")
         L.append("")
         L.append("| Node | Before | After |")
@@ -520,7 +522,7 @@ def write_markdown_report(
             if node.maintenance:
                 L.append(f"| {node.name} | \u26a0\ufe0f maintenance | — |")
                 continue
-            before = _node_load_pct(cluster, node, initial)
+            before = _node_load_pct(cluster, node, initial_node_placements)
             after = _node_load_pct(cluster, node, solution.placements)
             L.append(f"| {node.name} | {before*100:.1f}% | {after*100:.1f}% |")
         L.append("")
@@ -718,7 +720,7 @@ a:hover { text-decoration: underline; }
     # Sidebar — group scenarios by subdirectory
     from pathlib import Path as _Path
     from collections import OrderedDict as _OD
-    groups: dict[str, list] = _OD()
+    groups: dict[str, list[Any]] = _OD()
     for entry in sc_data:
         sp = entry[0]
         cat = _Path(sp).parent.name if sp else "other"
@@ -797,7 +799,7 @@ a:hover { text-decoration: underline; }
     for scenario_path, cluster, solution, plan, checks, ok in sc_data:
         slug = _slug(cluster.name)
         vm_map = {v.name: v for v in cluster.vms}
-        initial = {v.name: v.node for v in cluster.vms}
+        initial_placements = {v.name: v.node for v in cluster.vms}
 
         h.append(f'<div class="card" id="{slug}">')
         h.append(f'<h3>{cluster.name} {_html_badge(ok)}</h3>')
@@ -845,7 +847,7 @@ a:hover { text-decoration: underline; }
             if node.maintenance:
                 h.append(f'<tr><td>{node.name}</td><td colspan="4" class="warn">maintenance</td></tr>')
                 continue
-            before = _node_load_pct(cluster, node, initial)
+            before = _node_load_pct(cluster, node, initial_placements)
             after = _node_load_pct(cluster, node, solution.placements)
             color = "var(--ok)" if after < 0.8 else "var(--warn)" if after < 0.95 else "var(--err)"
             h.append(f'<tr><td>{node.name}</td><td>{before*100:.1f}%</td><td>→</td>'

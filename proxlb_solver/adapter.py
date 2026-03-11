@@ -40,7 +40,7 @@ if TYPE_CHECKING:
 # Normalisation: Pydantic → flat dict
 # ---------------------------------------------------------------------------
 
-def _reserve_to_dict(raw) -> dict:
+def _reserve_to_dict(raw: Any) -> dict[str, Any]:
     """Convert node_resource_reserve (may have StrEnum keys) to plain str keys."""
     if not raw:
         return {}
@@ -122,7 +122,7 @@ def _pydantic_to_dict(proxlb_data: "ProxLbData") -> Dict[str, Any]:
 # Internal helpers
 # ---------------------------------------------------------------------------
 
-def _get_memory_reserve_bytes(node_name: str, reserve_cfg: dict) -> int:
+def _get_memory_reserve_bytes(node_name: str, reserve_cfg: dict[str, Any]) -> int:
     """
     Returns the configured memory reservation for a specific node in bytes.
 
@@ -146,7 +146,7 @@ def _get_memory_reserve_bytes(node_name: str, reserve_cfg: dict) -> int:
 def from_proxlb_data(
     proxlb_data: "Dict[str, Any] | ProxLbData",
     use_reservations: bool = True,
-    pin_vms: set | None = None,
+    pin_vms: set[str] | None = None,
 ) -> Cluster:
     """
     Convert ProxLB data into a Cluster ready for the solver.
@@ -179,13 +179,13 @@ def from_proxlb_data(
         max_node_inflow=balancing_cfg.get("max_node_inflow", 1),
         max_parallel_migrations=balancing_cfg.get("max_parallel_migrations"),
     )
-    reserve_cfg: dict = balancing_cfg.get("node_resource_reserve") or {}
+    reserve_cfg: dict[str, Any] = balancing_cfg.get("node_resource_reserve") or {}
 
     # 2. Physical nodes --------------------------------------------------------
     nodes = []
     for name, nd in proxlb_data.get("nodes", {}).items():
 
-        def _nd(key, default=0, _nd=nd):  # noqa: E731
+        def _nd(key: str, default: Any = 0, _nd: dict[str, Any] = nd) -> Any:  # noqa: E731
             return _nd.get(key, default)
 
         mem_used  = int(_nd("memory_used"))
@@ -216,16 +216,16 @@ def from_proxlb_data(
 
     # 3. Guests + constraint extraction ----------------------------------------
     vms: list[VM] = []
-    affinity_groups:      dict = defaultdict(list)
-    anti_affinity_groups: dict = defaultdict(list)
-    pin_rules:   list[dict] = []
+    affinity_groups:      dict[tuple[str, str], list[str]] = defaultdict(list)
+    anti_affinity_groups: dict[tuple[str, str], list[str]] = defaultdict(list)
+    pin_rules:   list[dict[str, Any]] = []
     ignore_list: list[str]  = []
 
     pools_config = balancing_cfg.get("pools") or {}
 
     for name, gd in proxlb_data.get("guests", {}).items():
 
-        def _gd(key, default=0, _gd=gd):  # noqa: E731
+        def _gd(key: str, default: Any = 0, _gd: dict[str, Any] = gd) -> Any:  # noqa: E731
             return _gd.get(key, default)
 
         vms.append(VM(
@@ -244,7 +244,7 @@ def from_proxlb_data(
 
         # A. Native Proxmox HA rules
         for rule in _gd("ha_rules", []):
-            r_id   = rule.get("rule") if isinstance(rule, dict) else getattr(rule, "rule", "")
+            r_id   = str(rule.get("rule") if isinstance(rule, dict) else getattr(rule, "rule", ""))
             r_type = rule.get("type") if isinstance(rule, dict) else str(getattr(rule, "type", ""))
             if r_type == "affinity":
                 affinity_groups[(r_id, "pve")].append(name)
@@ -271,7 +271,7 @@ def from_proxlb_data(
         # D. Node pinning  (tags, pools, HA restricted nodes)
         node_rels = _gd("node_relationships", [])
         if node_rels:
-            origins: list[dict] = []
+            origins: list[dict[str, Any]] = []
             for tag in _gd("tags", []):
                 if tag.startswith("plb_pin"):
                     origins.append({"origin": "tag", "source": tag})
@@ -284,7 +284,7 @@ def from_proxlb_data(
             for rule in _gd("ha_rules", []):
                 r_type  = rule.get("type")  if isinstance(rule, dict) else str(getattr(rule, "type", ""))
                 r_nodes = rule.get("nodes") if isinstance(rule, dict) else getattr(rule, "nodes", [])
-                r_id    = rule.get("rule")  if isinstance(rule, dict) else getattr(rule, "rule", "")
+                r_id    = str(rule.get("rule") if isinstance(rule, dict) else getattr(rule, "rule", ""))
                 if r_type == "affinity" and r_nodes:
                     origins.append({"origin": "pve", "source": r_id})
             pin_rules.append({

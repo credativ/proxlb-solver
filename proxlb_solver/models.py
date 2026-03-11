@@ -12,7 +12,7 @@ Units used throughout the project:
 """
 
 from __future__ import annotations
-from typing import Optional
+from typing import Any, Optional
 from pydantic import BaseModel, Field, ConfigDict
 
 
@@ -76,9 +76,9 @@ class Constraints(BaseModel):
     """
     model_config = ConfigDict(frozen=True)
 
-    affinity: list[dict] = Field(default_factory=list)
-    anti_affinity: list[dict] = Field(default_factory=list)
-    pin: list[dict] = Field(default_factory=list)
+    affinity: list[dict[str, Any]] = Field(default_factory=list)
+    anti_affinity: list[dict[str, Any]] = Field(default_factory=list)
+    pin: list[dict[str, Any]] = Field(default_factory=list)
     ignore: list[str] = Field(default_factory=list)
 
 

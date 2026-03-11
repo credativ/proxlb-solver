@@ -168,8 +168,8 @@ def plan_migrations(
 
     # Initial cluster state tracking
     node_mem_total = {node.name: node.memory_total for node in cluster.nodes}
-    node_used_mem = defaultdict(int)
-    node_used_cpu = defaultdict(int)
+    node_used_mem: dict[str, int] = defaultdict(int)
+    node_used_cpu: dict[str, int] = defaultdict(int)
     vm_lookup = {vm.name: vm for vm in cluster.vms}
 
     for vm in cluster.vms:
@@ -259,9 +259,9 @@ def plan_migrations(
         changed = True
         while changed:
             changed = False
-            for vm, deps in dependencies.items():
-                if vm not in all_cycle_participants and (deps & all_cycle_participants):
-                    all_cycle_participants.add(vm)
+            for dep_vm, deps in dependencies.items():
+                if dep_vm not in all_cycle_participants and (deps & all_cycle_participants):
+                    all_cycle_participants.add(dep_vm)
                     changed = True
 
         # Try to break the cycle by parking ONE VM on a temp (spare) node
@@ -317,8 +317,8 @@ def plan_migrations(
             task_queue.append((mig.source, mig.target, mig.vm, False))
 
     while task_queue:
-        current_step_migrations = []
-        inflow_count = defaultdict(int)
+        current_step_migrations: list[Migration] = []
+        inflow_count: dict[str, int] = defaultdict(int)
         processed_indices = []
 
         for i, (source, target, vm_name, is_temp_move) in enumerate(task_queue):
@@ -372,7 +372,9 @@ def plan_migrations(
     if task_queue:
         remaining_vms = sorted({vm_name for _, _, vm_name, _ in task_queue})
         return MigrationPlan(
-            final_steps, dependency_edges, temp_moves_vms,
+            steps=final_steps,
+            dependency_edges=dependency_edges,
+            temp_moves=temp_moves_vms,
             path_feasible=False,
             unbreakable_cycle=remaining_vms,
             pve_deferred=sorted(pve_deferred_vms),
