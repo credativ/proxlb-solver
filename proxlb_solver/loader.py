@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from collections import defaultdict
 
-import yaml  # type: ignore[import-untyped]
+import yaml
 
 from .models import Balancing, Cluster, Constraints, Expect, Node, VM
 
