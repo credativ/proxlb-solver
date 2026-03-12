@@ -46,9 +46,9 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/credativ/proxlb-algorithmus"
-Repository = "https://github.com/credativ/proxlb-algorithmus"
-"Bug Tracker" = "https://github.com/credativ/proxlb-algorithmus/issues"
+Homepage = "https://github.com/credativ/proxlb-solver"
+Repository = "https://github.com/credativ/proxlb-solver"
+"Bug Tracker" = "https://github.com/credativ/proxlb-solver/issues"
 
 [project.scripts]
 proxlb-solver        = "proxlb_solver.cli:main"
