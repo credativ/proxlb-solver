@@ -18,15 +18,24 @@ concurrency:
 jobs:
   test:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        pythonversion:
+        - 3.11
+        - 3.12
+        - 3.13
+        - 3.14
+    container:
+      image: python:${{ matrix.pythonversion }}
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
       - name: Install dependencies
         run: pip install -e ".[dev]"
+
+      # FIXME: tests/ currently do not pass mypy checks
+      - name: Run mypy tests
+        run: pytest --mypy -v proxlb_solver
 
       - name: Run tests
         run: pytest -v --junitxml=results.xml
@@ -35,7 +44,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: test-results
+          name: test-results-${{ matrix.pythonversion }}
           path: results.xml
 
   report:
