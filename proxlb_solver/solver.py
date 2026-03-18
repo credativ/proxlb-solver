@@ -337,21 +337,33 @@ def solve(cluster: Cluster, time_limit_s: float = 30.0, forbidden_placements: li
             if use_psi:
                 cap = 100
                 res_p = lambda v: v.cpu_pressure if resource_type == "cpu" else v.memory_pressure if resource_type == "memory" else v.io_pressure  # noqa: E731
-                used = sum(int(res_p(vms[i]) * vms[i].priority * _LOAD_SCALE) * x[i][j] for i in range(len(vms)))  # type: ignore[misc, no-untyped-call]
+                coeffs = [int(res_p(vms[i]) * vms[i].priority * _LOAD_SCALE) for i in range(len(vms))]
+                used_expr = sum(coeffs[i] * x[i][j] for i in range(len(vms)))  # type: ignore[misc, no-untyped-call]
             else:
                 if resource_type == "cpu":
                     cap = max(1, node.cpu_total - node.cpu_reserve)
-                    if bal.mode == "assigned": used = sum(vms[i].cpu * vms[i].priority * _LOAD_SCALE * x[i][j] for i in range(len(vms)))  # type: ignore[misc]
-                    else: used = sum(int(vms[i].cpu_usage * vms[i].priority * _LOAD_SCALE) * x[i][j] for i in range(len(vms)))  # type: ignore[misc]
+                    if bal.mode == "assigned":
+                        coeffs = [vms[i].cpu * vms[i].priority * _LOAD_SCALE for i in range(len(vms))]
+                    else:
+                        coeffs = [int(vms[i].cpu_usage * vms[i].priority * _LOAD_SCALE) for i in range(len(vms))]
+                    used_expr = sum(coeffs[i] * x[i][j] for i in range(len(vms)))  # type: ignore[misc]
                 elif resource_type == "memory":
                     cap = max(1, (node.memory_total - node.memory_reserve) // _MB)
-                    used = sum((vms[i].memory * vms[i].priority // _MB) * _LOAD_SCALE * x[i][j] for i in range(len(vms)))  # type: ignore[misc]
-                else: # disk / io
+                    coeffs = [(vms[i].memory * vms[i].priority // _MB) * _LOAD_SCALE for i in range(len(vms))]
+                    used_expr = sum(coeffs[i] * x[i][j] for i in range(len(vms)))  # type: ignore[misc]
+                else:  # disk / io
                     cap = max(1, sum(node.storage_free.values()) // _MB)
-                    used = sum((sum(vms[i].disks.values()) * vms[i].priority // _MB) * _LOAD_SCALE * x[i][j] for i in range(len(vms)))  # type: ignore[misc]
+                    coeffs = [(sum(vms[i].disks.values()) * vms[i].priority // _MB) * _LOAD_SCALE for i in range(len(vms))]
+                    used_expr = sum(coeffs[i] * x[i][j] for i in range(len(vms)))  # type: ignore[misc]
+
+            # add_division_equality requires an IntVar numerator in ortools 9.10+;
+            # a bare LinearExpr causes MODEL_INVALID.  Materialise with explicit bounds.
+            max_used = max(1, sum(abs(c) for c in coeffs))
+            used_var = model.new_int_var(0, max_used, f"used_{resource_type}_{'psi' if use_psi else 'u'}_{node.name}")
+            model.add(used_var == used_expr)
 
             lv = model.new_int_var(0, max_load_val, f"l_{resource_type}_{'psi' if use_psi else 'u'}_{node.name}")
-            model.add_division_equality(lv, used, model.new_constant(cap))
+            model.add_division_equality(lv, used_var, cap)
             node_loads.append(lv)
 
         gap = model.new_int_var(0, max_load_val, f"gap_{resource_type}_{'psi' if use_psi else 'u'}")
