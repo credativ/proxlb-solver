@@ -337,8 +337,8 @@ def solve(cluster: Cluster, time_limit_s: float = 30.0, forbidden_placements: li
             if use_psi:
                 cap = 100
                 res_p = lambda v: v.cpu_pressure if resource_type == "cpu" else v.memory_pressure if resource_type == "memory" else v.io_pressure  # noqa: E731
-                coeffs = [int(res_p(vms[i]) * vms[i].priority * _LOAD_SCALE) for i in range(len(vms))]
-                used_expr = sum(coeffs[i] * x[i][j] for i in range(len(vms)))  # type: ignore[misc, no-untyped-call]
+                coeffs = [int(res_p(vms[i]) * vms[i].priority * _LOAD_SCALE) for i in range(len(vms))]  # type: ignore[no-untyped-call]
+                used_expr = sum(coeffs[i] * x[i][j] for i in range(len(vms)))
             else:
                 if resource_type == "cpu":
                     cap = max(1, node.cpu_total - node.cpu_reserve)
@@ -346,15 +346,15 @@ def solve(cluster: Cluster, time_limit_s: float = 30.0, forbidden_placements: li
                         coeffs = [vms[i].cpu * vms[i].priority * _LOAD_SCALE for i in range(len(vms))]
                     else:
                         coeffs = [int(vms[i].cpu_usage * vms[i].priority * _LOAD_SCALE) for i in range(len(vms))]
-                    used_expr = sum(coeffs[i] * x[i][j] for i in range(len(vms)))  # type: ignore[misc]
+                    used_expr = sum(coeffs[i] * x[i][j] for i in range(len(vms)))
                 elif resource_type == "memory":
                     cap = max(1, (node.memory_total - node.memory_reserve) // _MB)
                     coeffs = [(vms[i].memory * vms[i].priority // _MB) * _LOAD_SCALE for i in range(len(vms))]
-                    used_expr = sum(coeffs[i] * x[i][j] for i in range(len(vms)))  # type: ignore[misc]
+                    used_expr = sum(coeffs[i] * x[i][j] for i in range(len(vms)))
                 else:  # disk / io
                     cap = max(1, sum(node.storage_free.values()) // _MB)
                     coeffs = [(sum(vms[i].disks.values()) * vms[i].priority // _MB) * _LOAD_SCALE for i in range(len(vms))]
-                    used_expr = sum(coeffs[i] * x[i][j] for i in range(len(vms)))  # type: ignore[misc]
+                    used_expr = sum(coeffs[i] * x[i][j] for i in range(len(vms)))
 
             # add_division_equality requires an IntVar numerator in ortools 9.10+;
             # a bare LinearExpr causes MODEL_INVALID.  Materialise with explicit bounds.
@@ -400,7 +400,10 @@ def solve(cluster: Cluster, time_limit_s: float = 30.0, forbidden_placements: li
     for i, vm in enumerate(vms):
         if vm.name not in set(cons.ignore):
             m_var = model.new_bool_var(f"mvar_{vm.name}")
-            model.add(m_var == 1 - x[i][node_idx[vm.node]])
+            if vm.node in node_idx:
+                model.add(m_var == 1 - x[i][node_idx[vm.node]])
+            else:
+                model.add(m_var == 1)  # node gone — VM must migrate
             mig_count_list.append(m_var)
             ram_cost, disk_cost = max(1, vm.memory // _COST_UNIT), sum(vm.disks.values()) // _COST_UNIT if vm.disks else 0
             mig_cost_terms.append((ram_cost + _LOCAL_DISK_FACTOR * disk_cost) * m_var)
