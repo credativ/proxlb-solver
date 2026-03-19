@@ -33,12 +33,8 @@ jobs:
       - name: Install dependencies
         run: pip install -e ".[dev]"
 
-      # FIXME: tests/ currently do not pass mypy checks
-      - name: Run mypy tests
-        run: pytest --mypy -v proxlb_solver
-
       - name: Run tests
-        run: pytest -v --junitxml=results.xml
+        run: pytest --mypy -v --junitxml=results.xml
 
       - name: Upload test results
         if: always()

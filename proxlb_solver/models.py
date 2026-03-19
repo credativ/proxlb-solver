@@ -121,7 +121,8 @@ class Balancing(BaseModel):
     # max_parallel_migrations: Limits concurrent network/storage load during moves.
     max_parallel_migrations: Optional[int] = 2
     # max_node_inflow: Prevents transient RAM/CPU peaks by allowing only one entry per host.
-    max_node_inflow: int = 1
+    # None disables the cap; the planner short-circuits on falsy values.
+    max_node_inflow: Optional[int] = 1
 
 
 class Cluster(BaseModel):

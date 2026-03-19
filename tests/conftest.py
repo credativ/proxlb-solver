@@ -23,5 +23,6 @@ ALL_SCENARIOS = collect_scenarios()
 
 
 @pytest.fixture(params=ALL_SCENARIOS, ids=[scenario_id(p) for p in ALL_SCENARIOS])
-def scenario_path(request) -> Path:
+def scenario_path(request: pytest.FixtureRequest) -> Path:
+    assert isinstance(request.param, Path)
     return request.param
