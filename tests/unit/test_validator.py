@@ -61,12 +61,12 @@ def _cluster(
 
 class TestNoConflict:
 
-    def test_empty_constraints_returns_constraints(self):
+    def test_empty_constraints_returns_constraints(self) -> None:
         cluster = _cluster(vms=[_vm("vm-a"), _vm("vm-b")], constraints=Constraints())
         result = validate_and_merge_constraints(cluster)
         assert result is cluster.constraints
 
-    def test_affinity_only_no_conflict(self):
+    def test_affinity_only_no_conflict(self) -> None:
         cons = Constraints(
             affinity=[{"name": "web", "vms": ["vm-a", "vm-b"], "hard": True}],
         )
@@ -74,21 +74,21 @@ class TestNoConflict:
         # Must not raise
         validate_and_merge_constraints(cluster)
 
-    def test_anti_affinity_only_no_conflict(self):
+    def test_anti_affinity_only_no_conflict(self) -> None:
         cons = Constraints(
             anti_affinity=[{"name": "spread", "vms": ["vm-a", "vm-b"], "hard": True}],
         )
         cluster = _cluster(vms=[_vm("vm-a"), _vm("vm-b")], constraints=cons)
         validate_and_merge_constraints(cluster)
 
-    def test_pin_only_no_conflict(self):
+    def test_pin_only_no_conflict(self) -> None:
         cons = Constraints(
             pin=[{"vm": "vm-a", "nodes": ["n1", "n2"]}],
         )
         cluster = _cluster(vms=[_vm("vm-a")], constraints=cons)
         validate_and_merge_constraints(cluster)
 
-    def test_affinity_and_anti_affinity_on_different_vms(self):
+    def test_affinity_and_anti_affinity_on_different_vms(self) -> None:
         """A+B affine, C+D anti-affine: no overlap → no conflict."""
         cons = Constraints(
             affinity=[{"name": "web", "vms": ["vm-a", "vm-b"], "hard": True}],
@@ -107,7 +107,7 @@ class TestNoConflict:
 
 class TestAffinityMerging:
 
-    def test_two_rules_sharing_one_vm_are_merged(self):
+    def test_two_rules_sharing_one_vm_are_merged(self) -> None:
         """A+B and B+C share B → merged into {A,B,C}."""
         cons = Constraints(
             affinity=[
@@ -130,7 +130,7 @@ class TestAffinityMerging:
         with pytest.raises(RuleConflictError):
             validate_and_merge_constraints(cluster)
 
-    def test_three_independent_rules_merged_into_one_group(self):
+    def test_three_independent_rules_merged_into_one_group(self) -> None:
         """A+B, B+C, C+D → {A,B,C,D}; anti-affinity A+D conflicts."""
         cons = Constraints(
             affinity=[
@@ -149,7 +149,7 @@ class TestAffinityMerging:
         with pytest.raises(RuleConflictError):
             validate_and_merge_constraints(cluster)
 
-    def test_two_separate_groups_no_conflict(self):
+    def test_two_separate_groups_no_conflict(self) -> None:
         """A+B (group 1) and C+D (group 2): anti-affinity across groups is fine."""
         cons = Constraints(
             affinity=[
@@ -168,7 +168,7 @@ class TestAffinityMerging:
         # Should not raise: cross-group anti-affinity is valid.
         validate_and_merge_constraints(cluster)
 
-    def test_soft_affinity_rules_are_not_merged(self):
+    def test_soft_affinity_rules_are_not_merged(self) -> None:
         """Soft affinity rules must not participate in transitivity merging.
 
         A+B (soft), B+C (soft): even if anti-affinity A+C is hard,
@@ -197,7 +197,7 @@ class TestAffinityMerging:
 
 class TestAffinityAntiAffinityConflict:
 
-    def test_direct_conflict_raises(self):
+    def test_direct_conflict_raises(self) -> None:
         """A+B must be together AND A+B must be apart: conflict."""
         cons = Constraints(
             affinity=[{"name": "must_together", "vms": ["vm-a", "vm-b"], "hard": True}],
@@ -209,7 +209,7 @@ class TestAffinityAntiAffinityConflict:
         # Error message should identify the anti-affinity rule name.
         assert "must_apart" in str(exc_info.value)
 
-    def test_conflict_message_contains_vms(self):
+    def test_conflict_message_contains_vms(self) -> None:
         """Error message must identify the conflicting VMs."""
         cons = Constraints(
             affinity=[{"name": "aff", "vms": ["alpha", "beta"], "hard": True}],
@@ -222,7 +222,7 @@ class TestAffinityAntiAffinityConflict:
         # Both VMs must appear in the message.
         assert "alpha" in msg or "beta" in msg
 
-    def test_three_vms_partial_overlap_raises(self):
+    def test_three_vms_partial_overlap_raises(self) -> None:
         """Affinity {A,B,C}, anti-affinity {A,B}: A and B are in the affinity group."""
         cons = Constraints(
             affinity=[{"name": "grp", "vms": ["vm-a", "vm-b", "vm-c"], "hard": True}],
@@ -235,7 +235,7 @@ class TestAffinityAntiAffinityConflict:
         with pytest.raises(RuleConflictError):
             validate_and_merge_constraints(cluster)
 
-    def test_soft_anti_affinity_with_hard_affinity_does_not_raise(self):
+    def test_soft_anti_affinity_with_hard_affinity_does_not_raise(self) -> None:
         """Soft anti-affinity can never produce a logical deadlock → no conflict."""
         cons = Constraints(
             affinity=[{"name": "aff", "vms": ["vm-a", "vm-b"], "hard": True}],
@@ -244,7 +244,7 @@ class TestAffinityAntiAffinityConflict:
         cluster = _cluster(vms=[_vm("vm-a"), _vm("vm-b")], constraints=cons)
         validate_and_merge_constraints(cluster)
 
-    def test_unknown_vm_in_rule_is_skipped(self):
+    def test_unknown_vm_in_rule_is_skipped(self) -> None:
         """A VM mentioned in a rule but not in the cluster must be silently ignored."""
         cons = Constraints(
             affinity=[{"name": "aff", "vms": ["vm-a", "ghost"], "hard": True}],
@@ -262,7 +262,7 @@ class TestAffinityAntiAffinityConflict:
 
 class TestPinConflict:
 
-    def test_two_disjoint_pin_rules_raise(self):
+    def test_two_disjoint_pin_rules_raise(self) -> None:
         """vm pinned to {n1} and also pinned to {n2}: intersection is empty."""
         cons = Constraints(
             pin=[
@@ -275,7 +275,7 @@ class TestPinConflict:
             validate_and_merge_constraints(cluster)
         assert "vm-a" in str(exc_info.value)
 
-    def test_two_overlapping_pin_rules_do_not_raise(self):
+    def test_two_overlapping_pin_rules_do_not_raise(self) -> None:
         """vm pinned to {n1,n2} and {n2,n3}: intersection {n2} is non-empty."""
         cons = Constraints(
             pin=[
@@ -286,12 +286,12 @@ class TestPinConflict:
         cluster = _cluster(vms=[_vm("vm-a")], constraints=cons)
         validate_and_merge_constraints(cluster)
 
-    def test_single_pin_rule_does_not_raise(self):
+    def test_single_pin_rule_does_not_raise(self) -> None:
         cons = Constraints(pin=[{"vm": "vm-a", "nodes": ["n1"]}])
         cluster = _cluster(vms=[_vm("vm-a")], constraints=cons)
         validate_and_merge_constraints(cluster)
 
-    def test_pin_conflict_message_names_the_vm(self):
+    def test_pin_conflict_message_names_the_vm(self) -> None:
         cons = Constraints(
             pin=[
                 {"vm": "important-vm", "nodes": ["n1"]},
@@ -303,7 +303,7 @@ class TestPinConflict:
             validate_and_merge_constraints(cluster)
         assert "important-vm" in str(exc_info.value)
 
-    def test_ghost_vm_pin_conflict_is_ignored(self):
+    def test_ghost_vm_pin_conflict_is_ignored(self) -> None:
         """A pin conflict for a VM not in the cluster must be silently skipped."""
         cons = Constraints(
             pin=[
@@ -315,7 +315,7 @@ class TestPinConflict:
         # "ghost" is not in the cluster → skipped entirely.
         validate_and_merge_constraints(cluster)
 
-    def test_three_pin_rules_intersection_empty_raises(self):
+    def test_three_pin_rules_intersection_empty_raises(self) -> None:
         """vm pinned to {n1,n2}, {n2,n3}, {n3,n4}: intersection {n2}∩{n3}={} raises."""
         cons = Constraints(
             pin=[
@@ -339,7 +339,7 @@ class TestPinConflict:
 
 class TestAffinityAwarePinning:
 
-    def test_affine_vms_pinned_to_same_node_ok(self):
+    def test_affine_vms_pinned_to_same_node_ok(self) -> None:
         """A+B affine, both pinned to n1: intersection {n1} is valid."""
         cons = Constraints(
             affinity=[{"name": "grp", "vms": ["vm-a", "vm-b"], "hard": True}],
@@ -351,7 +351,7 @@ class TestAffinityAwarePinning:
         cluster = _cluster(vms=[_vm("vm-a"), _vm("vm-b")], constraints=cons)
         validate_and_merge_constraints(cluster)
 
-    def test_affine_vms_pinned_to_different_nodes_raises(self):
+    def test_affine_vms_pinned_to_different_nodes_raises(self) -> None:
         """A+B affine, A pinned to n1, B pinned to n2: can never share a node."""
         cons = Constraints(
             affinity=[{"name": "together", "vms": ["vm-a", "vm-b"], "hard": True}],
@@ -366,7 +366,7 @@ class TestAffinityAwarePinning:
         msg = str(exc_info.value)
         assert "unplaceable" in msg
 
-    def test_affine_group_only_one_vm_pinned_no_conflict(self):
+    def test_affine_group_only_one_vm_pinned_no_conflict(self) -> None:
         """A+B affine; only A is pinned. No intersection check needed."""
         cons = Constraints(
             affinity=[{"name": "grp", "vms": ["vm-a", "vm-b"], "hard": True}],
@@ -376,7 +376,7 @@ class TestAffinityAwarePinning:
         # B is unpinned → B can move to n1 with A.
         validate_and_merge_constraints(cluster)
 
-    def test_transitive_group_pin_conflict(self):
+    def test_transitive_group_pin_conflict(self) -> None:
         """A+B (rule1), B+C (rule2) → merged {A,B,C}. A→n1, C→n2 conflicts."""
         cons = Constraints(
             affinity=[
@@ -395,7 +395,7 @@ class TestAffinityAwarePinning:
         with pytest.raises(RuleConflictError):
             validate_and_merge_constraints(cluster)
 
-    def test_affine_vms_with_overlapping_pins_ok(self):
+    def test_affine_vms_with_overlapping_pins_ok(self) -> None:
         """A+B affine, A→{n1,n2}, B→{n2,n3}: intersection {n2} is valid."""
         cons = Constraints(
             affinity=[{"name": "grp", "vms": ["vm-a", "vm-b"], "hard": True}],
@@ -407,7 +407,7 @@ class TestAffinityAwarePinning:
         cluster = _cluster(vms=[_vm("vm-a"), _vm("vm-b")], constraints=cons)
         validate_and_merge_constraints(cluster)
 
-    def test_soft_affinity_pinning_intersection_not_checked(self):
+    def test_soft_affinity_pinning_intersection_not_checked(self) -> None:
         """Soft affinity is excluded from transitivity merging, so pinned VMs
         with disjoint sets under a soft rule must not cause a RuleConflictError."""
         cons = Constraints(

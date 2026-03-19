@@ -6,8 +6,11 @@ from proxlb_solver.solver import solve_reachable
 from proxlb_solver.reporter import print_report
 
 def run_simulation(dump_path: str) -> None:
+    # Lazy: ProxLB is only needed when the simulator actually runs.
+    from proxlb.utils.proxlb_data import ProxLbData
+
     with open(dump_path) as f:
-        data = json.load(f)
+        data = ProxLbData.model_validate(json.load(f))
 
     print(f"--- Loading data from {dump_path} ---")
     cluster = from_proxlb_data(data)
