@@ -10,7 +10,7 @@ from proxlb_solver.solver import solve_reachable
 from proxlb_solver.reporter import _compute_load_gap, _initial_load_gap
 
 
-def test_scenario(scenario_path: Path):
+def test_scenario(scenario_path: Path) -> None:
     """Test a single YAML scenario against its expect block."""
     cluster = load_scenario(scenario_path)
     solution, mig_plan = solve_reachable(cluster, quiet=True)
@@ -107,7 +107,7 @@ def test_scenario(scenario_path: Path):
                 )
 
         # Verify storage capacity
-        storage_usage = defaultdict(lambda: defaultdict(int)) # node -> {storage -> bytes}
+        storage_usage: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int)) # node -> {storage -> bytes}
         for vm_name, target in solution.placements.items():
             vm = next(v for v in cluster.vms if v.name == vm_name)
             for sname, sbytes in vm.disks.items():
@@ -125,7 +125,7 @@ def test_scenario(scenario_path: Path):
                     )
 
         # Verify CPU capacity
-        cpu_usage_vcpus = defaultdict(int)
+        cpu_usage_vcpus: dict[str, int] = defaultdict(int)
         for vm_name, target in solution.placements.items():
             vm = next(v for v in cluster.vms if v.name == vm_name)
             cpu_usage_vcpus[target] += vm.cpu

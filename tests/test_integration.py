@@ -4,7 +4,7 @@ from pathlib import Path
 from proxlb_solver.loader import load_scenario
 from proxlb_solver.solver import solve_reachable
 
-def test_loop_required_scenario():
+def test_loop_required_scenario() -> None:
     """Test that the feedback loop correctly bypasses a deadlock.
 
     The optimal solution is a swap (vm-a↔vm-b) giving near-perfect balance,
