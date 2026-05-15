@@ -15,7 +15,9 @@ JSONL event types written to the run file:
   unbreakable_cycle — cycle that could not be resolved by the planner
   compare        — per-VM comparison between solver and ProxLB decisions
                    result: agree | differ | solver_only | proxlb_only
-  infeasible     — solver found no valid placement; lists blocking VMs
+  infeasible     — solver found no valid placement; lists blocking VMs and
+                   a 'blame' list of rule descriptions that suffice to prove
+                   infeasibility (from explain_infeasibility)
   error          — unexpected exception during shadow run
   proxlb_executed — appended after Balancing() completes; dry_run=True when
                     ProxLB ran with --dry-run (no migrations were issued)
@@ -192,7 +194,7 @@ def _shadow_inner(
         _write_proxlb_plan(proxlb_data, f)
 
         from .adapter import from_proxlb_data
-        from .solver import solve
+        from .solver import solve, explain_infeasibility
         from .planner import plan_migrations
 
         cluster = from_proxlb_data(proxlb_data, use_reservations=solver_cfg.use_reservations)
@@ -226,7 +228,14 @@ def _shadow_inner(
         )
 
         if not solution.feasible:
-            _write(f, {"event": "infeasible", "blocking_vms": solution.blocking_vms})
+            blame = explain_infeasibility(cluster, time_limit_s=min(time_limit_s, 10.0))
+            _write(f, {
+                "event":        "infeasible",
+                "blocking_vms": solution.blocking_vms,
+                "blame":        blame,
+            })
+            if blame:
+                log.info(f"[solver] infeasible blame: {blame}")
             return None
 
         plan = plan_migrations(cluster, solution)
