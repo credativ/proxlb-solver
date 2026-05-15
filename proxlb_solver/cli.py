@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
+from typing import Any
 
 from .loader import load_scenario
 from .planner import plan_migrations
@@ -15,7 +16,7 @@ from .reporter import (
     write_junit_xml,
     write_markdown_report,
 )
-from .solver import solve, solve_reachable
+from .solver import explain_infeasibility, solve, solve_reachable
 
 # Development fallback: scenarios/ next to the repo root.
 # This path does not exist in an installed package; users must pass --scenarios.
@@ -73,6 +74,7 @@ def main() -> None:
     results = []
     results_junit = []
     migration_plans = {}
+    infeasibility_blame: dict[str, list[dict[str, Any]]] = {}
 
     for path in scenario_files:
         rel = str(path.relative_to(args.scenarios))
@@ -83,8 +85,14 @@ def main() -> None:
 
         migration_plans[rel] = mig_plan
 
+        blame: list[dict[str, Any]] | None = None
+        if not solution.feasible:
+            blame = explain_infeasibility(cluster)
+            if blame:
+                infeasibility_blame[rel] = blame
+
         if not args.quiet:
-            print_report(cluster, solution)
+            print_report(cluster, solution, blame=blame)
 
         results.append((rel, cluster, solution))
 
@@ -97,12 +105,14 @@ def main() -> None:
         results_junit.append((rel, cluster, solution, errors))
 
     if args.markdown:
-        write_markdown_report(results, args.markdown, migration_plans)
+        write_markdown_report(results, args.markdown, migration_plans,
+                              infeasibility_blame=infeasibility_blame)
         if not args.quiet:
             print("\nMarkdown report written to %s" % args.markdown)
 
     if args.html:
-        write_html_report(results, args.html, migration_plans)
+        write_html_report(results, args.html, migration_plans,
+                          infeasibility_blame=infeasibility_blame)
         if not args.quiet:
             print("HTML report written to %s" % args.html)
 
