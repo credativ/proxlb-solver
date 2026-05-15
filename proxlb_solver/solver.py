@@ -16,6 +16,7 @@ To overcome this, we scale all percentages and fractional values by _LOAD_SCALE
 from __future__ import annotations
 import time
 import logging
+from typing import Any, Callable
 from ortools.sat.python import cp_model
 
 from .models import Balancing, Cluster, Method, Migration, Resource, Solution, SolverStats, MigrationPlan
@@ -230,10 +231,191 @@ def _find_blocking_vms(cluster: Cluster, time_limit_s: float) -> list[str]:
     return blockers or [v.name for v in vms_on_node]
 
 
+_Guard = Callable[[dict[str, Any]], "cp_model.IntVar"]
+
+
+def _add_hard_constraints(model: cp_model.CpModel, x: list[list[cp_model.IntVar]],
+                          cluster: Cluster, guard: _Guard | None = None) -> None:
+    """Add every hard placement rule of *cluster* to *model*.
+
+    This is the single definition of the hard constraints, shared by solve()
+    and explain_infeasibility() so the two models cannot drift apart.
+
+    Without *guard*, every rule is added unconditionally. With *guard*, each
+    blameable rule group calls ``guard(description)`` once and is enforced only
+    if the returned literal is true. The exactly-one-node placement constraint
+    is structural and never guarded.
+    """
+    nodes, vms, bal, cons = cluster.nodes, cluster.vms, cluster.balancing, cluster.constraints
+    node_idx = {n.name: i for i, n in enumerate(nodes)}
+    vm_idx = {v.name: i for i, v in enumerate(vms)}
+
+    def rule(description: dict[str, Any]) -> Callable[[cp_model.Constraint], None]:
+        lit = guard(description) if guard is not None else None
+
+        def enforce(ct: cp_model.Constraint) -> None:
+            if lit is not None:
+                ct.only_enforce_if(lit)
+        return enforce
+
+    # Structural: every VM lands on exactly one node.
+    for i in range(len(vms)):
+        model.add(sum(x[i][j] for j in range(len(nodes))) == 1)
+
+    # Maintenance nodes are forbidden.
+    for j, node in enumerate(nodes):
+        if node.maintenance:
+            enforce = rule({"type": "maintenance", "node": node.name})
+            for i in range(len(vms)):
+                enforce(model.add(x[i][j] == 0))
+
+    if cluster.evacuate_node:
+        evj = node_idx.get(cluster.evacuate_node)
+        if evj is not None:
+            enforce = rule({"type": "evacuate", "node": cluster.evacuate_node})
+            for i in range(len(vms)):
+                enforce(model.add(x[i][evj] == 0))
+
+    # Ignored guests must stay on their source node. If that node is gone,
+    # the rule cannot be satisfied.
+    for i, vm in enumerate(vms):
+        if vm.name in cons.ignore:
+            enforce = rule({"type": "ignore", "vm": vm.name, "node": vm.node})
+            if vm.node in node_idx:
+                enforce(model.add(x[i][node_idx[vm.node]] == 1))
+            else:
+                enforce(model.add(sum(x[i]) == 0))
+
+    # Resource capacity (memory and storage scaled to MiB, CPU in milli-cores
+    # considering overcommit). A reserve larger than the total leaves the
+    # node unusable rather than negative.
+    for j, node in enumerate(nodes):
+        enforce = rule({"type": "capacity_memory", "node": node.name})
+        cap_mib = max(0, (node.memory_total - node.memory_reserve) // _MB)
+        enforce(model.add(sum((vms[i].memory // _MB) * x[i][j] for i in range(len(vms))) <= cap_mib))
+
+        enforce = rule({"type": "capacity_cpu", "node": node.name})
+        usable_cpu = max(0, node.cpu_total - node.cpu_reserve)
+        cap_mcpu = usable_cpu * int(bal.cpu_overcommit * 1000)
+        enforce(model.add(sum(vms[i].cpu * 1000 * x[i][j] for i in range(len(vms))) <= cap_mcpu))
+
+    all_storages = sorted({s for v in vms for s in v.disks.keys()})
+    for sn in all_storages:
+        for j, node in enumerate(nodes):
+            enforce = rule({"type": "capacity_storage", "node": node.name, "pool": sn})
+            cap_mib = max(0, (node.storage_free.get(sn, 0) - node.storage_reserve.get(sn, 0)) // _MB)
+            enforce(model.add(sum((vms[i].disks.get(sn, 0) // _MB) * x[i][j] for i in range(len(vms))) <= cap_mib))
+
+    for r in cons.anti_affinity:
+        indices = [vm_idx[n] for n in r["vms"] if n in vm_idx]
+        if len(indices) < 2 or not r.get("hard", True):
+            continue
+        enforce = rule({"type": "anti_affinity", "name": r.get("name"), "vms": list(r["vms"])})
+        for j in range(len(nodes)):
+            enforce(model.add(sum(x[i][j] for i in indices) <= 1))
+
+    for r in cons.affinity:
+        indices = [vm_idx[n] for n in r["vms"] if n in vm_idx]
+        if len(indices) < 2 or not r.get("hard", True):
+            continue
+        enforce = rule({"type": "affinity", "name": r.get("name"), "vms": list(r["vms"])})
+        for other in indices[1:]:
+            for j in range(len(nodes)):
+                enforce(model.add(x[indices[0]][j] == x[other][j]))
+
+    for r in cons.pin:
+        vi = vm_idx.get(r["vm"])
+        if vi is None:
+            continue
+        enforce = rule({"type": "pin", "vm": r["vm"], "nodes": list(r["nodes"])})
+        allowed = {node_idx[n] for n in r["nodes"] if n in node_idx}
+        for j in range(len(nodes)):
+            if j not in allowed:
+                enforce(model.add(x[vi][j] == 0))
+
+
+def explain_infeasibility(cluster: Cluster, time_limit_s: float = 10.0) -> list[dict[str, Any]]:
+    """Return a structured blame list explaining why *cluster* is infeasible.
+
+    Builds a feasibility-only CP-SAT model from the same hard constraints as
+    solve() (via _add_hard_constraints), guarding each rule with an assumption
+    literal. CP-SAT then reports a subset of literals that suffices to prove
+    infeasibility. That subset is not guaranteed to be minimal, so a deletion
+    pass re-solves without each rule in turn and drops any rule the rest can
+    prove infeasibility without.
+
+    If the deletion pass completes within *time_limit_s*, the result is
+    minimal: removing any one listed rule makes the model feasible. If time
+    runs out, the result is still sufficient but may contain extra rules.
+
+    Returns an empty list when the feasibility model is actually satisfiable
+    (e.g. the original infeasibility was caused by a planner feedback term
+    that this function does not model), or when the first solve does not
+    finish within the time limit.
+    """
+    nodes, vms = cluster.nodes, cluster.vms
+    if not nodes or not vms:
+        return []
+
+    model = cp_model.CpModel()
+    x = [[model.new_bool_var(f"x_{v.name}_{n.name}") for n in nodes] for v in vms]
+
+    blame_by_index: dict[int, dict[str, Any]] = {}
+    lit_by_index: dict[int, cp_model.IntVar] = {}
+
+    def guard(description: dict[str, Any]) -> cp_model.IntVar:
+        lit = model.new_bool_var(f"a_{len(blame_by_index)}")
+        blame_by_index[lit.index] = description
+        lit_by_index[lit.index] = lit
+        return lit
+
+    _add_hard_constraints(model, x, cluster, guard)
+
+    deadline = time.monotonic() + max(1.0, min(time_limit_s, 10.0))
+
+    def solve_assuming(indices: list[int]) -> tuple[cp_model.CpSolverStatus, list[int]]:
+        """Solve with *indices* assumed true; return (status, core indices)."""
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return cp_model.UNKNOWN, []
+        model.clear_assumptions()
+        model.add_assumptions([lit_by_index[k] for k in indices])
+        solver = cp_model.CpSolver()
+        solver.parameters.max_time_in_seconds = remaining
+        status = solver.solve(model)
+        if status != cp_model.INFEASIBLE:
+            return status, []
+        return status, [k for k in solver.sufficient_assumptions_for_infeasibility() if k in lit_by_index]
+
+    status, core = solve_assuming(list(lit_by_index))
+    if status != cp_model.INFEASIBLE:
+        return []
+    if not core:
+        core = list(lit_by_index)
+
+    # Deletion pass: try dropping each rule; keep it only if the rest is feasible.
+    i = 0
+    while i < len(core):
+        trial = core[:i] + core[i + 1:]
+        status, sub = solve_assuming(trial)
+        if status == cp_model.INFEASIBLE:
+            keep = set(sub) if sub else set(trial)
+            core = [k for k in trial if k in keep]
+            i = min(i, len(core))
+        else:
+            # Feasible without it (needed), or out of time (keep, stay sufficient).
+            i += 1
+
+    return [blame_by_index[k] for k in core]
+
+
 def solve(cluster: Cluster, time_limit_s: float = 30.0, forbidden_placements: list[dict[str, str]] | None = None) -> Solution:
     """
     The Core Solver. Translates the cluster into a CP-SAT model and finds
     the mathematically optimal guest placement.
+
+    Hard constraints live in _add_hard_constraints(), which explain_infeasibility()
+    shares; add new hard rules there.
     """
     # 1. Validate and prep constraints first
     try:
@@ -262,72 +444,29 @@ def solve(cluster: Cluster, time_limit_s: float = 30.0, forbidden_placements: li
             literals = [x[vm_idx[v]][node_idx[n]] for v, n in forbidden.items() if v in vm_idx and n in node_idx]
             if literals: model.add(sum(literals) <= len(literals) - 1)
 
-    # 5. Core Placement Rules
-    for i in range(len(vms)): model.add(sum(x[i][j] for j in range(len(nodes))) == 1)
+    # 5. Hard rules: placement, maintenance, evacuation, ignore, capacity,
+    #    hard (anti-)affinity and pinning.
+    _add_hard_constraints(model, x, cluster)
 
-    for j, node in enumerate(nodes):
-        if node.maintenance:
-            # Maintenance nodes are forbidden
-            for i in range(len(vms)): model.add(x[i][j] == 0)
-
-    if cluster.evacuate_node:
-        evj = node_idx.get(cluster.evacuate_node)
-        if evj is not None:
-            for i in range(len(vms)): model.add(x[i][evj] == 0)
-
-    for i, vm in enumerate(vms):
-        if vm.name in cons.ignore:
-            # Ignored guests must stay on their source node
-            model.add(x[i][node_idx[vm.node]] == 1)
-
-    # 6. Resource Capacity Constraints
-    for j, node in enumerate(nodes):
-        # Memory limit (Bytes scaled to MiB)
-        model.add(sum((vms[i].memory // _MB) * x[i][j] for i in range(len(vms))) <= (node.memory_total - node.memory_reserve) // _MB)
-        # CPU limit (considering Overcommit)
-        usable_cpu = max(0, node.cpu_total - node.cpu_reserve)
-        model.add(sum(vms[i].cpu * 1000 * x[i][j] for i in range(len(vms))) <= usable_cpu * int(bal.cpu_overcommit * 1000))
-
-    # Storage Capacity per pool
-    all_storages = {s for v in vms for s in v.disks.keys()}
-    for sn in all_storages:
-        for j, node in enumerate(nodes):
-            model.add(sum((vms[i].disks.get(sn, 0) // _MB) * x[i][j] for i in range(len(vms))) <= max(0, (node.storage_free.get(sn, 0) - node.storage_reserve.get(sn, 0)) // _MB))
-
-    # 7. Affinity / Anti-Affinity (Hard & Soft)
+    # 6. Soft Affinity / Anti-Affinity
     soft_penalties = []
     for rule in cons.anti_affinity:
         indices = [vm_idx[n] for n in rule["vms"] if n in vm_idx]
-        if len(indices) < 2: continue
-        if rule.get("hard", True):
-            for j in range(len(nodes)): model.add(sum(x[i][j] for i in indices) <= 1)
-        else:
-            for j in range(len(nodes)):
-                violated = model.new_bool_var(f"soft_aa_{rule.get('name','na')}_{nodes[j].name}")
-                model.add(sum(x[i][j] for i in indices) <= 1 + len(indices) * violated)
-                soft_penalties.append(violated)
+        if len(indices) < 2 or rule.get("hard", True): continue
+        for j in range(len(nodes)):
+            violated = model.new_bool_var(f"soft_aa_{rule.get('name','na')}_{nodes[j].name}")
+            model.add(sum(x[i][j] for i in indices) <= 1 + len(indices) * violated)
+            soft_penalties.append(violated)
 
     for rule in cons.affinity:
         indices = [vm_idx[n] for n in rule["vms"] if n in vm_idx]
-        if len(indices) < 2: continue
-        if rule.get("hard", True):
-            for other in indices[1:]:
-                for j in range(len(nodes)): model.add(x[indices[0]][j] == x[other][j])
-        else:
-            for other in indices[1:]:
-                for j in range(len(nodes)):
-                    violated = model.new_bool_var(f"soft_aff_{rule.get('name','na')}_{vms[other].name}_{nodes[j].name}")
-                    model.add(x[indices[0]][j] - x[other][j] <= violated)
-                    model.add(x[other][j] - x[indices[0]][j] <= violated)
-                    soft_penalties.append(violated)
-
-    for rule in cons.pin:
-        # Node Pinning
-        vi = vm_idx.get(rule["vm"])
-        if vi is not None:
-            allowed = {node_idx[n] for n in rule["nodes"] if n in node_idx}
+        if len(indices) < 2 or rule.get("hard", True): continue
+        for other in indices[1:]:
             for j in range(len(nodes)):
-                if j not in allowed: model.add(x[vi][j] == 0)
+                violated = model.new_bool_var(f"soft_aff_{rule.get('name','na')}_{vms[other].name}_{nodes[j].name}")
+                model.add(x[indices[0]][j] - x[other][j] <= violated)
+                model.add(x[other][j] - x[indices[0]][j] <= violated)
+                soft_penalties.append(violated)
 
     # 8. Optimization Objective (Gap Minimization)
     max_load_val = _LOAD_SCALE * 15
