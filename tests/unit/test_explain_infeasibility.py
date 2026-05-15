@@ -168,3 +168,19 @@ def test_ignored_vm_on_missing_node_is_infeasible_and_blamed() -> None:
     blame = explain_infeasibility(cluster, time_limit_s=5)
     assert blame == [{"type": "ignore", "vm": "vm", "node": "gone"}]
 
+
+def test_html_report_escapes_blame() -> None:
+    """Rule names come from user data and must not inject markup."""
+    import tempfile
+    from proxlb_solver.reporter import write_html_report
+
+    rel = "infeasible/hard_anti_affinity_conflict.yaml"
+    cluster = load_scenario(_REPO_ROOT / "scenarios" / rel)
+    sol = solve(cluster, time_limit_s=5)
+    blame = [{"type": "anti_affinity", "name": "<img src=x onerror=alert(1)>", "vms": ["a", "b"]}]
+    with tempfile.TemporaryDirectory() as d:
+        out = Path(d) / "r.html"
+        write_html_report([(rel, cluster, sol)], out, infeasibility_blame={rel: blame})
+        text = out.read_text()
+    assert "<img src=x" not in text
+    assert "&lt;img src=x" in text
