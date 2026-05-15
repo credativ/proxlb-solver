@@ -840,3 +840,22 @@ def test_execute_solver_plan_resolve_uses_solver_method(tmp_path: Path) -> None:
                 execute_solver_plan(mock_api, data, plan, solver_cfg, run_file)
 
     assert seen == ["global_smart"]
+
+
+def test_adapter_failure_still_writes_partial_cluster_state(tmp_path: Path) -> None:
+    """If building the Cluster fails, the report still gets a before-state."""
+    from proxlb_solver.shadow import run_shadow
+
+    with mock_patch("proxlb_solver.adapter.from_proxlb_data",
+                    side_effect=ValueError("bad data")):
+        run_file, plan = run_shadow(_MINIMAL_PROXLB_DATA, Config.Solver(log_dir=str(tmp_path)))
+
+    assert plan is None
+    assert run_file is not None
+    events = _read_jsonl(run_file)
+    state = next(e for e in events if e["event"] == "cluster_state")
+    assert state["partial"] is True
+    assert state["method"] == "memory"
+    assert set(state["nodes"]) == {"node1", "node2"}
+    assert state["guests"]["vm-100"]["node"] == "node1"
+    assert any(e["event"] == "error" and "bad data" in e["message"] for e in events)
