@@ -381,8 +381,8 @@ def test_execute_solver_plan_single_step_success(tmp_path):
         from proxlb_solver.shadow import execute_solver_plan
         execute_solver_plan(mock_api, data, plan, solver_cfg, run_file)
 
-    # Balancing called exactly once (for the step; no remainder that needs moving)
-    assert mock_balancing.call_count == 1
+    # Balancing.balance() called exactly once (for the step; no remainder that needs moving)
+    assert mock_balancing.balance.call_count == 1
     # node_current updated
     assert data["guests"]["vm-100"]["node_current"] == "node2"
 
@@ -615,7 +615,8 @@ def test_execute_single_step_balancing_exception_marks_all_vms_failed(tmp_path):
     )
 
     mock_api = MagicMock()
-    mock_balancing = MagicMock(side_effect=RuntimeError("VM is locked"))
+    mock_balancing = MagicMock()
+    mock_balancing.balance.side_effect = RuntimeError("VM is locked")
     mock_mod = types.SimpleNamespace(Balancing=mock_balancing)
     patch_dict = {
         "proxlb": MagicMock(),
@@ -659,7 +660,8 @@ def test_execute_solver_plan_balancing_exception_skips_subsequent_steps(tmp_path
     )
 
     mock_api = MagicMock()
-    mock_balancing = MagicMock(side_effect=RuntimeError("timeout"))
+    mock_balancing = MagicMock()
+    mock_balancing.balance.side_effect = RuntimeError("timeout")
     mock_mod = types.SimpleNamespace(Balancing=mock_balancing)
     patch_dict = {
         "proxlb": MagicMock(),
