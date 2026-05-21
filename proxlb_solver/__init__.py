@@ -15,7 +15,7 @@ ProxLB integration:
     run_shadow(proxlb_data, cfg)        — shadow-mode observer (read-only)
 """
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 from .models import (
     Cluster,

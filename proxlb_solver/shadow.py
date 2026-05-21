@@ -539,7 +539,7 @@ def _execute_single_step(
         return set()
 
     try:
-        _Balancing(proxmox_api, proxlb_data)
+        _Balancing.balance(proxmox_api, proxlb_data)
     except Exception as exc:
         # Balancing raised — record every VM in this step as failed.
         # Skip verification: the cluster state after a partial/failed
@@ -738,6 +738,6 @@ def execute_solver_plan(
     ):
         log.info(f"[solver] active: handing {len(remainder)} remainder VM(s) to ProxLB Balancing")
         try:
-            _Balancing(proxmox_api, proxlb_data)
+            _Balancing.balance(proxmox_api, proxlb_data)
         except Exception as exc:
             log.warning(f"[solver] active: remainder Balancing() failed: {exc}")
