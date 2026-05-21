@@ -11,7 +11,7 @@ _GiB = 1024 ** 3
 _MiB = 1024 * 1024
 
 
-def _cluster(nodes, vms, balanciness=5, w_stickiness=1, constraints=None):
+def _cluster(nodes: list[Node], vms: list[VM], balanciness: int = 5, w_stickiness: int = 1, constraints: Constraints | None = None) -> Cluster:
     """Helper: build a minimal Cluster for cost-model testing."""
     return Cluster(
         name="test",
@@ -36,7 +36,7 @@ class TestPreferSmallerMigration:
     """vm-large (8 GiB) and vm-small (512 MiB) are both on node-A; node-B empty.
     Both migrations achieve the same RAM balance, but vm-small is cheaper."""
 
-    def setup_method(self):
+    def setup_method(self) -> None:
         nodes = [
             Node(name="node-A", cpu_total=4, memory_total=32 * _GiB),
             Node(name="node-B", cpu_total=4, memory_total=32 * _GiB),
@@ -47,20 +47,20 @@ class TestPreferSmallerMigration:
         ]
         self.solution = solve(_cluster(nodes, vms))
 
-    def test_feasible(self):
+    def test_feasible(self) -> None:
         assert self.solution.feasible
 
-    def test_exactly_one_migration(self):
+    def test_exactly_one_migration(self) -> None:
         assert len(self.solution.migrations) == 1
 
-    def test_small_vm_migrated_not_large(self):
+    def test_small_vm_migrated_not_large(self) -> None:
         migrated = {m.vm for m in self.solution.migrations}
         assert "vm-small" in migrated, (
             "solver should migrate the cheaper 512 MiB VM, not the 8 GiB VM"
         )
         assert "vm-large" not in migrated
 
-    def test_cost_gib_reflects_small_vm(self):
+    def test_cost_gib_reflects_small_vm(self) -> None:
         # vm-small is < 1 GiB so display cost rounds to 1 GiB (floor at 1)
         assert self.solution.stats.migration_cost_gib == 1
 
@@ -76,7 +76,7 @@ class TestLocalDiskAvoidance:
     Both nodes have local-lvm storage so the constraint allows vm-diskvm to
     go to node-B — the cost model alone must determine the decision."""
 
-    def setup_method(self):
+    def setup_method(self) -> None:
         nodes = [
             Node(name="node-A", cpu_total=4, memory_total=64 * _GiB,
                  storage_free={"local-lvm": 200 * _GiB}),
@@ -90,20 +90,20 @@ class TestLocalDiskAvoidance:
         ]
         self.solution = solve(_cluster(nodes, vms))
 
-    def test_feasible(self):
+    def test_feasible(self) -> None:
         assert self.solution.feasible
 
-    def test_exactly_one_migration(self):
+    def test_exactly_one_migration(self) -> None:
         assert len(self.solution.migrations) == 1
 
-    def test_ram_only_vm_migrated(self):
+    def test_ram_only_vm_migrated(self) -> None:
         migrated = {m.vm for m in self.solution.migrations}
         assert "vm-ramonly" in migrated, (
             "solver should avoid migrating the VM with 100 GiB local disk"
         )
         assert "vm-diskvm" not in migrated
 
-    def test_cost_gib_reflects_ram_only(self):
+    def test_cost_gib_reflects_ram_only(self) -> None:
         # vm-ramonly: 4 GiB RAM, no disk → display cost = 4
         assert self.solution.stats.migration_cost_gib == 4
 
@@ -116,7 +116,7 @@ class TestCostGibField:
     """Verify that migration_cost_gib reports actual GiB of migrated data,
     not the optimizer's internal 256-MiB units."""
 
-    def test_cost_gib_for_8gib_vm(self):
+    def test_cost_gib_for_8gib_vm(self) -> None:
         # Two 8 GiB VMs both on node-A; solver migrates one to node-B.
         nodes = [
             Node(name="node-A", cpu_total=4, memory_total=32 * _GiB),
@@ -131,7 +131,7 @@ class TestCostGibField:
         assert len(sol.migrations) == 1
         assert sol.stats.migration_cost_gib == 8
 
-    def test_cost_gib_includes_local_disk_factor(self):
+    def test_cost_gib_includes_local_disk_factor(self) -> None:
         # vm-disk (4 GiB RAM, 10 GiB local disk) is pinned-out of node-A by
         # pinning vm-other there, forcing vm-disk to migrate to node-B.
         # display cost = max(1, 4) + 4 * 10 = 44
@@ -154,7 +154,7 @@ class TestCostGibField:
         assert "vm-disk" in migrated
         assert sol.stats.migration_cost_gib == 44   # 4 + 4*10
 
-    def test_no_migrations_zero_cost(self):
+    def test_no_migrations_zero_cost(self) -> None:
         # Already balanced — no migrations expected
         nodes = [
             Node(name="node-A", cpu_total=4, memory_total=16 * _GiB),
@@ -180,7 +180,7 @@ class TestThreeVmCostPreference:
     prefer moving the 512 MiB VM + one 1 GiB VM (cost 6) over moving
     the two 1 GiB VMs (cost 8)."""
 
-    def setup_method(self):
+    def setup_method(self) -> None:
         nodes = [
             Node(name="node-A", cpu_total=4, memory_total=16 * _GiB),
             Node(name="node-B", cpu_total=4, memory_total=16 * _GiB),
@@ -193,17 +193,17 @@ class TestThreeVmCostPreference:
         ]
         self.solution = solve(_cluster(nodes, vms))
 
-    def test_feasible(self):
+    def test_feasible(self) -> None:
         assert self.solution.feasible
 
-    def test_vm_idle_is_migrated(self):
+    def test_vm_idle_is_migrated(self) -> None:
         migrated = {m.vm for m in self.solution.migrations}
         assert "vm-idle" in migrated, (
             "512 MiB VM should be included in migrations (cheaper than moving "
             "both 1 GiB VMs)"
         )
 
-    def test_not_both_heavy_vms_migrated(self):
+    def test_not_both_heavy_vms_migrated(self) -> None:
         migrated = {m.vm for m in self.solution.migrations}
         both_heavy = {"vm-heavy-1", "vm-heavy-2"}.issubset(migrated)
         assert not both_heavy, (
