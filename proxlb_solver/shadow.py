@@ -15,7 +15,9 @@ JSONL event types written to the run file:
   unbreakable_cycle — cycle that could not be resolved by the planner
   compare        — per-VM comparison between solver and ProxLB decisions
                    result: agree | differ | solver_only | proxlb_only
-  infeasible     — solver found no valid placement; lists blocking VMs
+  infeasible     — solver found no valid placement; lists blocking VMs and
+                   a 'blame' list of rule descriptions that suffice to prove
+                   infeasibility (from explain_infeasibility)
   error          — unexpected exception during shadow run
   proxlb_executed — appended after Balancing() completes; dry_run=True when
                     ProxLB ran with --dry-run (no migrations were issued)
@@ -190,13 +192,14 @@ def _shadow_inner(
         # Log ProxLB's planned migrations first — independent of the solver,
         # so they are always captured even if cluster building or solving fails.
         _write_proxlb_plan(proxlb_data, f)
-        _write_cluster_state(proxlb_data, solver_cfg, f)
 
         from .adapter import from_proxlb_data
-        from .solver import solve
+        from .solver import solve, explain_infeasibility
         from .planner import plan_migrations
 
         cluster = from_proxlb_data(proxlb_data, use_reservations=solver_cfg.use_reservations)
+
+        _write_cluster_state(cluster, proxlb_data, f)
 
         # Log all identified constraints before solving so the full rule picture
         # is always visible, even if the solver fails or times out.
@@ -225,7 +228,14 @@ def _shadow_inner(
         )
 
         if not solution.feasible:
-            _write(f, {"event": "infeasible", "blocking_vms": solution.blocking_vms})
+            blame = explain_infeasibility(cluster, time_limit_s=min(time_limit_s, 10.0))
+            _write(f, {
+                "event":        "infeasible",
+                "blocking_vms": solution.blocking_vms,
+                "blame":        blame,
+            })
+            if blame:
+                log.info(f"[solver] infeasible blame: {blame}")
             return None
 
         plan = plan_migrations(cluster, solution)
@@ -280,58 +290,81 @@ def _write_proxlb_plan(proxlb_data: dict[str, Any], f: IO[str]) -> None:
             })
 
 
-def _write_cluster_state(proxlb_data: dict[str, Any], solver_cfg: types.SimpleNamespace, f: IO[str]) -> None:
-    """Emit a ``cluster_state`` snapshot used for before/after load reporting.
+def _write_cluster_state(cluster: Any, proxlb_data: dict[str, Any], f: IO[str]) -> None:
+    """Emit a ``cluster_state`` snapshot of the solver's full input.
 
-    Captures per-node memory and CPU totals plus the current VM placement so
-    the reporter can compute the projected load after applying the solver plan.
+    All node and VM fields are taken from the already-built :class:`Cluster`
+    so the snapshot matches exactly what the solver sees. Per-node and
+    per-guest ``memory_used`` are runtime metrics not present on the Cluster
+    model; they are pulled from *proxlb_data* and kept so the reporter can
+    compute before/after load.
+
+    The snapshot is rich enough that ``scripts/jsonl_to_scenario.py`` can
+    reconstruct a faithful scenario YAML from it.
     """
-    balancing_cfg = proxlb_data.get("meta", {}).get("balancing", {})
-    method = balancing_cfg.get("method", "memory")
+    pd_nodes  = proxlb_data.get("nodes", {})
+    pd_guests = proxlb_data.get("guests", {})
+
+    def _node_mem_used(name: str) -> int:
+        nd = pd_nodes.get(name) or {}
+        v  = nd.get("memory_used")
+        if v is None and isinstance(nd.get("memory"), dict):
+            v = nd["memory"].get("used")
+        return int(v or 0)
+
+    def _guest_mem_used(name: str) -> int:
+        gd = pd_guests.get(name) or {}
+        v  = gd.get("memory_used")
+        if v is None and isinstance(gd.get("memory"), dict):
+            v = gd["memory"].get("used")
+        return int(v or 0)
 
     nodes: dict[str, Any] = {}
-    for name, nd in proxlb_data.get("nodes", {}).items():
-        def _nd_val(key: str, subkey: str | None = None, default: Any = 0, _nd: dict[str, Any] = nd) -> Any:
-            val = _nd.get(key)
-            if subkey and isinstance(val, dict):
-                return val.get(subkey, default)
-            return val if val is not None else default
-
-        mem_used  = _nd_val("memory_used", default=_nd_val("memory", "used"))
-        mem_free  = _nd_val("memory_free", default=_nd_val("memory", "free"))
-        raw_total = (mem_used + mem_free) if (mem_used + mem_free) > 0 else _nd_val("memory_total", default=_nd_val("memory", "total"))
-        nodes[name] = {
-            "cpu_total":    _nd_val("cpu_total", default=_nd_val("cpu", "total")),
-            "memory_total": raw_total,
-            "memory_used":  mem_used,
+    for n in cluster.nodes:
+        entry: dict[str, Any] = {
+            "cpu_total":       n.cpu_total,
+            "memory_total":    n.memory_total,
+            "memory_reserve":  n.memory_reserve,
+            "cpu_reserve":     n.cpu_reserve,
+            "storage_free":    dict(n.storage_free),
+            "storage_reserve": dict(n.storage_reserve),
+            "cpu_pressure":    n.cpu_pressure,
+            "memory_pressure": n.memory_pressure,
+            "io_pressure":     n.io_pressure,
+            "maintenance":     n.maintenance,
         }
+        mu = _node_mem_used(n.name)
+        if mu > 0:
+            entry["memory_used"] = mu
+        nodes[n.name] = entry
 
     guests: dict[str, Any] = {}
-    for name, gd in proxlb_data.get("guests", {}).items():
-        def _gd_val(key: str, subkey: str | None = None, default: Any = 0, _gd: dict[str, Any] = gd) -> Any:
-            val = _gd.get(key)
-            if subkey and isinstance(val, dict):
-                return val.get(subkey, default)
-            return val if val is not None else default
-
-        entry: dict[str, Any] = {
-            "node":   _gd_val("node_current", default=gd.get("node_current")),
-            "memory": _gd_val("memory_total", default=_gd_val("memory", "total")),
-            "cpu":    _gd_val("cpu_total", default=_gd_val("cpu", "total", default=1)),
+    for v in cluster.vms:
+        entry = {
+            "node":            v.node,
+            "cpu":             v.cpu,
+            "memory":          v.memory,
+            "cpu_usage":       v.cpu_usage,
+            "cpu_pressure":    v.cpu_pressure,
+            "memory_pressure": v.memory_pressure,
+            "io_pressure":     v.io_pressure,
+            "disks":           dict(v.disks),
+            "priority":        v.priority,
+            "vm_type":         v.vm_type,
         }
-        mem_used = _gd_val("memory_used", default=_gd_val("memory", "used"))
-        if mem_used > 0:
-            entry["memory_used"] = mem_used
-        cpu_used = _gd_val("cpu_used", default=_gd_val("cpu", "used"))
-        if cpu_used > 0:
-            entry["cpu_usage"] = cpu_used
-        guests[name] = entry
+        mu = _guest_mem_used(v.name)
+        if mu > 0:
+            entry["memory_used"] = mu
+        guests[v.name] = entry
 
     _write(f, {
-        "event":  "cluster_state",
-        "method": method,
-        "nodes":  nodes,
-        "guests": guests,
+        "event":       "cluster_state",
+        "name":        cluster.name,
+        "description": cluster.description,
+        "method":      cluster.balancing.method,  # kept at top level for reporter
+        "balancing":   cluster.balancing.model_dump(mode="json"),
+        "nodes":       nodes,
+        "guests":      guests,
     })
 
 
