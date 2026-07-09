@@ -107,7 +107,7 @@ Optimization is fine-tuned via three distinct tiers:
 
 ### Hard Constraints (Strict)
 Violations result in `INFEASIBLE`.
-- **Capacity**: RAM, CPU cores (with overcommit), and named storage pools (ZFS, LVM).
+- **Capacity**: RAM, CPU cores (with overcommit), and named storage pools (ZFS, LVM). Storage capacity is charged *inflow-only*: guests staying on their node already occupy space excluded from the pool's free bytes, and space freed by departing guests is not credited (it only materialises after their migration completes). With per-storage data from ProxLB (issue #115), shared storages (Ceph/NFS) are excluded from the model entirely — their disks are not copied on migration — while a nodes-restricted shared storage pins its guests to the nodes that see it. A guest on a node-local storage id that exists nowhere else cannot migrate (until target-storage remapping is modeled).
 - **Pinning**: Binding guests to specific hardware. **Pinning is always hard.**
 - **Maintenance**: Nodes in maintenance mode are forbidden targets.
 - **Hard Rules**: Affinity/Anti-Affinity marked as `hard: true`.
