@@ -29,6 +29,10 @@ proxlb_data.guests[name]:
     .memory.pressure_some_percent, .disk.pressure_some_percent,
     .type, .ha_rules[i](.rule, .type, .nodes),
     .tags, .pools, .node_relationships, .ignore
+    optional (ProxLB #115): .disks, .ha_managed
+
+proxlb_data.storage[name] (optional, ProxLB #115):
+    .shared, .content, .nodes[node](.avail, .active, .enabled)
 """
 
 from __future__ import annotations
@@ -122,8 +126,10 @@ def _guest_stub(
     pools: list[str] | None = None,
     node_relationships: list[str] | None = None,
     ignore: bool = False,
+    disks: dict[str, int] | None = None,
+    ha_managed: bool | None = None,
 ) -> types.SimpleNamespace:
-    return _ns(
+    stub = _ns(
         node_current=node_current,
         node_target=node_target,
         cpu=_ns(total=cpu_total, used=cpu_used, pressure_some_percent=0.0),
@@ -136,15 +142,39 @@ def _guest_stub(
         node_relationships=node_relationships or [],
         ignore=ignore,
     )
+    # Only set the ProxLB-#115 attributes when given, so the default stub
+    # models an older ProxLB without them.
+    if disks is not None:
+        stub.disks = disks
+    if ha_managed is not None:
+        stub.ha_managed = ha_managed
+    return stub
+
+
+def _storage_stub(
+    shared: bool = False,
+    content: list[str] | None = None,
+    nodes: dict[str, tuple[int, bool, bool]] | None = None,
+) -> types.SimpleNamespace:
+    """Storage entity stub; nodes maps node name -> (avail, active, enabled)."""
+    return _ns(
+        shared=shared,
+        content=content if content is not None else ["images", "rootdir"],
+        nodes={
+            n: _ns(avail=avail, active=active, enabled=enabled)
+            for n, (avail, active, enabled) in (nodes or {}).items()
+        },
+    )
 
 
 def _proxlb_data(
     nodes: dict[str, Any] | None = None,
     guests: dict[str, Any] | None = None,
     balancing: Any = None,
+    storage: dict[str, Any] | None = None,
 ) -> types.SimpleNamespace:
     """Build a minimal ProxLbData-shaped stub."""
-    return _ns(
+    stub = _ns(
         meta=_ns(balancing=balancing or _balancing()),
         nodes=nodes or {
             "node1": _node_stub(memory_used=2 * _GB, memory_free=14 * _GB),
@@ -155,6 +185,9 @@ def _proxlb_data(
         ha_rules={},
         groups=_ns(affinity={}, anti_affinity={}),
     )
+    if storage is not None:
+        stub.storage = storage
+    return stub
 
 
 # ---------------------------------------------------------------------------
@@ -550,3 +583,123 @@ class TestPinVmsFeedback:
         cluster = from_proxlb_data(stub, pin_vms=set())
         pins = [p for p in cluster.constraints.pin if p["vm"] == "vm-ok"]
         assert not pins
+
+
+# ---------------------------------------------------------------------------
+# Storage topology (ProxLB #115)
+# ---------------------------------------------------------------------------
+
+class TestStorageTopology:
+
+    def _cluster_stub(self):
+        """Two nodes; one local storage per node (unique names), one shared
+        rbd storage, one backup-only storage."""
+        return _proxlb_data(
+            guests={
+                "vm-local": _guest_stub(node_current="node1",
+                                        disks={"local-n1": 20 * _GB}),
+                "vm-shared": _guest_stub(node_current="node1",
+                                         disks={"ceph": 50 * _GB}),
+            },
+            storage={
+                "local-n1": _storage_stub(nodes={
+                    "node1": (80 * _GB, True, True),
+                    "node2": (0, False, False),  # disabled placeholder
+                }),
+                "local-n2": _storage_stub(nodes={
+                    "node1": (0, False, False),
+                    "node2": (60 * _GB, True, True),
+                }),
+                "ceph": _storage_stub(shared=True, content=["images"], nodes={
+                    "node1": (300 * _GB, True, True),
+                    "node2": (300 * _GB, True, True),
+                }),
+                "pbs": _storage_stub(shared=True, content=["backup"], nodes={
+                    "node1": (900 * _GB, True, True),
+                    "node2": (900 * _GB, True, True),
+                }),
+            },
+        )
+
+    def test_node_storage_free_per_storage(self):
+        """Active non-shared storages become per-node capacity pools; disabled
+        placeholder entries and shared/backup storages do not."""
+        from proxlb_solver.adapter import from_proxlb_data
+
+        cluster = from_proxlb_data(self._cluster_stub())
+        by_name = {n.name: n for n in cluster.nodes}
+        assert by_name["node1"].storage_free == {"local-n1": 80 * _GB}
+        assert by_name["node2"].storage_free == {"local-n2": 60 * _GB}
+
+    def test_guest_disks_mapped_and_shared_filtered(self):
+        """Local disks keep their storage id; shared disks impose no copy or
+        capacity cost and are excluded from VM.disks."""
+        from proxlb_solver.adapter import from_proxlb_data
+
+        cluster = from_proxlb_data(self._cluster_stub())
+        vms = {v.name: v for v in cluster.vms}
+        assert vms["vm-local"].disks == {"local-n1": 20 * _GB}
+        assert vms["vm-shared"].disks == {}
+
+    def test_cluster_wide_shared_storage_creates_no_pin(self):
+        """A shared storage visible from every node must not restrict placement."""
+        from proxlb_solver.adapter import from_proxlb_data
+
+        cluster = from_proxlb_data(self._cluster_stub())
+        assert not [p for p in cluster.constraints.pin if p["vm"] == "vm-shared"]
+
+    def test_restricted_shared_storage_pins_guest(self):
+        """A nodes-restricted shared storage limits its guests to the nodes
+        that see it (Proxmox refuses such migrations rather than copying)."""
+        from proxlb_solver.adapter import from_proxlb_data
+
+        stub = _proxlb_data(
+            guests={"vm-1": _guest_stub(node_current="node1",
+                                        disks={"nfs-limited": 10 * _GB})},
+            storage={"nfs-limited": _storage_stub(shared=True, nodes={
+                "node1": (100 * _GB, True, True),
+                "node2": (0, False, False),
+            })},
+        )
+        cluster = from_proxlb_data(stub)
+        pins = [p for p in cluster.constraints.pin if p["vm"] == "vm-1"]
+        assert pins
+        assert pins[0]["nodes"] == ["node1"]
+        assert any(o["origin"] == "storage" for o in pins[0]["origins"])
+
+    def test_unknown_storage_id_kept_conservatively(self):
+        """A disk on a storage missing from the topology section is treated as
+        local (constraining) rather than silently dropped."""
+        from proxlb_solver.adapter import from_proxlb_data
+
+        stub = _proxlb_data(
+            guests={"vm-1": _guest_stub(disks={"mystery": 5 * _GB})},
+            storage={"local-n1": _storage_stub(nodes={"node1": (80 * _GB, True, True)})},
+        )
+        cluster = from_proxlb_data(stub)
+        assert cluster.vms[0].disks == {"mystery": 5 * _GB}
+
+    def test_fallback_without_storage_section(self):
+        """Old ProxLB (no storage section, no Guest.disks): scalar fields feed
+        the single-'local' pseudo-storage exactly as before."""
+        from proxlb_solver.adapter import from_proxlb_data
+
+        stub = _proxlb_data(
+            nodes={"node1": _node_stub(disk_free=100 * _GB)},
+            guests={"vm-1": _guest_stub(disk_used=10 * _GB)},
+        )
+        cluster = from_proxlb_data(stub)
+        assert cluster.nodes[0].storage_free == {"local": 100 * _GB}
+        assert cluster.vms[0].disks == {"local": 10 * _GB}
+
+    def test_ha_managed_passthrough(self):
+        """ha_managed must survive into the flat dict for later consumers."""
+        from proxlb_solver.adapter import _pydantic_to_dict
+
+        stub = _proxlb_data(guests={
+            "vm-ha": _guest_stub(ha_managed=True),
+            "vm-plain": _guest_stub(),
+        })
+        d = _pydantic_to_dict(stub)
+        assert d["guests"]["vm-ha"]["ha_managed"] is True
+        assert d["guests"]["vm-plain"]["ha_managed"] is False

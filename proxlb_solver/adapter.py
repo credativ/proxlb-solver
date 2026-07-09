@@ -23,6 +23,16 @@ zero, letting the solver use the full hardware capacity.
 
 Fallback: if memory_used + memory_free == 0 (e.g. synthetic test data),
 memory_total is used as-is with memory_reserve=0.
+
+Storage handling (ProxLB #115)
+------------------------------
+With ProxLB's per-storage topology (ProxLbData.storage + Guest.disks), nodes
+carry one capacity pool per non-shared, guest-capable storage and guests
+carry the bytes a migration would actually copy.  Shared storages are
+excluded from the model (their disks are not moved); if one is restricted to
+a subset of nodes, its guests are pinned to those nodes instead.  Older
+ProxLB versions without the topology fall back to a single 'local'
+pseudo-storage fed by the scalar disk_used / disk_free fields.
 """
 
 from __future__ import annotations
@@ -106,7 +116,10 @@ def _pydantic_to_dict(proxlb_data: "ProxLbData") -> Dict[str, Any]:
             "pools":              gd.pools,
             "node_relationships": gd.node_relationships,
             "ignore":             gd.ignore,
+            "ha_managed":         bool(getattr(gd, "ha_managed", False)),
         }
+
+    _apply_storage_topology(proxlb_data, nodes, guests)
 
     return {
         "meta":     {"balancing": balancing_dict, "cluster_name": "Live Cluster"},
@@ -121,6 +134,66 @@ def _pydantic_to_dict(proxlb_data: "ProxLbData") -> Dict[str, Any]:
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
+def _apply_storage_topology(proxlb_data: "ProxLbData", nodes: Dict[str, Any], guests: Dict[str, Any]) -> None:
+    """
+    Fold the ProxLbData.storage section (ProxLB #115) into the flat node and
+    guest dicts.  Absent on older ProxLB versions — then nothing is added and
+    from_proxlb_data() falls back to the single-'local'-storage model.
+
+    Only non-shared, guest-capable storages become capacity pools:
+      - shared storages are excluded entirely: their disks are not copied on
+        migration and their usage does not depend on guest placement.  The
+        one constraint they do impose — the guest can only run on nodes that
+        see the storage — is emitted as 'storage_allowed_nodes' per guest.
+      - storages without 'images'/'rootdir' content never hold guest disks.
+      - node entries with active/enabled unset are zero-capacity placeholders
+        that PVE reports for storages restricted to other nodes.
+    """
+    storage_section = getattr(proxlb_data, "storage", None) or {}
+    if not storage_section:
+        return
+
+    shared_storages: dict[str, Any] = {}
+    for node_dict in nodes.values():
+        node_dict["storage_free"] = {}
+
+    for s_name, sd in storage_section.items():
+        if not {"images", "rootdir"} & set(sd.content):
+            continue
+        if sd.shared:
+            shared_storages[s_name] = sd
+            continue
+        for node_name, status in sd.nodes.items():
+            if node_name in nodes and status.active and status.enabled:
+                nodes[node_name]["storage_free"][s_name] = int(status.avail)
+
+    for name, gd in proxlb_data.guests.items():
+        if name not in guests:
+            continue
+        gd_disks = getattr(gd, "disks", None)
+        if gd_disks is None:
+            continue
+        # Unknown storage ids (not in the storage section) are kept: treating
+        # them as local is the conservative direction.
+        guests[name]["disks"] = {
+            s: int(b) for s, b in gd_disks.items() if s not in shared_storages
+        }
+
+        allowed: set[str] | None = None
+        for s_name in gd_disks:
+            sd = shared_storages.get(s_name)
+            if sd is None:
+                continue
+            avail_nodes = {n for n, st in sd.nodes.items() if st.active and st.enabled}
+            allowed = avail_nodes if allowed is None else allowed & avail_nodes
+        if allowed is not None and allowed < set(nodes):
+            # Strict subset: the shared storage is nodes-restricted, so the
+            # guest can only run where all its shared storages are visible.
+            # An empty set makes the guest infeasible — honest, since no node
+            # can currently run it.
+            guests[name]["storage_allowed_nodes"] = sorted(allowed)
+
 
 def _get_memory_reserve_bytes(node_name: str, reserve_cfg: dict[str, Any]) -> int:
     """
@@ -202,12 +275,22 @@ def from_proxlb_data(
             raw_memory     = int(_nd("memory_total"))
             memory_reserve = 0
 
+        storage_free_raw = _nd("storage_free", None)
+        if isinstance(storage_free_raw, dict):
+            # Per-storage topology (ProxLB #115): non-shared, guest-capable
+            # storages with their available bytes on this node.
+            storage_free = {str(s): int(v) for s, v in storage_free_raw.items()}
+        else:
+            # Older ProxLB: a single pseudo-storage from the node's scalar
+            # disk_free (the root filesystem).
+            storage_free = {"local": int(_nd("disk_free"))}
+
         nodes.append(Node(
             name=name,
             cpu_total=int(_nd("cpu_total")),
             memory_total=raw_memory,
             memory_reserve=memory_reserve,
-            storage_free={"local": int(_nd("disk_free"))},
+            storage_free=storage_free,
             cpu_pressure=_nd("cpu_pressure_some_percent", 0.0),
             memory_pressure=_nd("memory_pressure_some_percent", 0.0),
             io_pressure=_nd("disk_pressure_some_percent", 0.0),
@@ -228,6 +311,16 @@ def from_proxlb_data(
         def _gd(key: str, default: Any = 0, _gd: dict[str, Any] = gd) -> Any:  # noqa: E731
             return _gd.get(key, default)
 
+        disks_raw = _gd("disks", None)
+        if isinstance(disks_raw, dict):
+            # Per-storage guest disks (ProxLB #115), shared storages already
+            # filtered out: exactly the bytes a migration would copy.
+            vm_disks = {str(s): int(v) for s, v in disks_raw.items()}
+        else:
+            # Older ProxLB: the scalar 'disk' field (root disk only, usually
+            # 0 for QEMU guests).
+            vm_disks = {"local": int(_gd("disk_used"))}
+
         vms.append(VM(
             name=name,
             node=_gd("node_current", ""),
@@ -237,7 +330,7 @@ def from_proxlb_data(
             cpu_pressure=_gd("cpu_pressure_some_percent", 0.0),
             memory_pressure=_gd("memory_pressure_some_percent", 0.0),
             io_pressure=_gd("disk_pressure_some_percent", 0.0),
-            disks={"local": int(_gd("disk_used"))},
+            disks=vm_disks,
             priority=int(_gd("priority", 2)),
             vm_type=str(_gd("type", "vm")),
         ))
@@ -291,6 +384,16 @@ def from_proxlb_data(
                 "vm":      name,
                 "nodes":   node_rels,
                 "origins": origins,
+            })
+
+        # D2. Shared-storage availability: a guest whose shared storages are
+        # not visible from every node can only run where they all are.
+        storage_allowed = _gd("storage_allowed_nodes", None)
+        if storage_allowed is not None:
+            pin_rules.append({
+                "vm":      name,
+                "nodes":   [str(n) for n in storage_allowed],
+                "origins": [{"origin": "storage", "source": "shared_storage_availability"}],
             })
 
         # E. Active-mode feedback: pin VMs that failed to migrate previously
