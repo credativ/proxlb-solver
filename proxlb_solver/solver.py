@@ -242,6 +242,12 @@ def solve(cluster: Cluster, time_limit_s: float = 30.0, forbidden_placements: li
     model = cp_model.CpModel()
     nodes, vms, bal, cons = cluster.nodes, cluster.vms, cluster.balancing, cluster.constraints
 
+    if bal.method == "disk" and bal.mode == "assigned":
+        # Disk balancing has no assigned/used distinction (unlike CPU): there
+        # is no provisioned disk view in the model yet, so it always balances
+        # by allocated bytes. Surface the silent degradation.
+        logger.warning("[solver] method=disk ignores mode=assigned: no provisioned disk data in the model; balancing by allocated bytes (mode=used).")
+
     # 2. Determine balancing strategy and weights
     current_gap = _initial_load_gap(cluster)
     eff_wb, eff_ws = _resolve_balancing(bal, current_gap, cluster)

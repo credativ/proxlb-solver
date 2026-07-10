@@ -136,3 +136,24 @@ def test_shared_only_guest_moves_freely():
     solution = solve(cluster, time_limit_s=5.0)
     assert solution.feasible
     assert solution.placements["vm-ceph"] == "node2"
+
+
+def test_disk_assigned_mode_warns_about_degradation(caplog):
+    """method=disk has no assigned/used distinction; the silent fallback to
+    allocated bytes must be surfaced as a warning."""
+    import logging
+
+    cluster = _cluster(
+        nodes=[_node("node1", {"s1": 100 * _GB}), _node("node2", {"s1": 100 * _GB})],
+        vms=[_vm("vm-1", "node1", {"s1": 10 * _GB})],
+    )
+    cluster = cluster.model_copy(update={"balancing": Balancing(method="disk", mode="assigned")})
+    with caplog.at_level(logging.WARNING, logger="ProxLB"):
+        solve(cluster, time_limit_s=5.0)
+    assert any("ignores mode=assigned" in r.message for r in caplog.records)
+
+    caplog.clear()
+    cluster = cluster.model_copy(update={"balancing": Balancing(method="disk", mode="used")})
+    with caplog.at_level(logging.WARNING, logger="ProxLB"):
+        solve(cluster, time_limit_s=5.0)
+    assert not any("ignores mode=assigned" in r.message for r in caplog.records)
