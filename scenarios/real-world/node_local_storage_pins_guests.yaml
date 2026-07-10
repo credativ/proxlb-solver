@@ -1,0 +1,89 @@
+name: "Dev Cluster — Node-Local Storages Pin Their Guests"
+description: >
+  A three-node dev cluster (modeled on a real test cluster) where each node
+  has its own uniquely-named dir storage (local-152/154/156, restricted via
+  the config 'nodes' option) plus a cluster-wide Ceph pool. This is the
+  storage layout that ProxLB issue #115 / the target-storage-remap work is
+  about: a guest with disks on local-154 cannot migrate anywhere, because no
+  other node provides a storage with that id — Proxmox rejects the migration
+  at validation time. Without the (future) --targetstorage remap, the solver
+  must treat such guests as immovable via the per-storage capacity model:
+  every other node offers zero capacity for their storage id.
+
+  Node ...154 is memory-hot: it runs two disk-heavy appliance VMs on its
+  local storage and one Ceph-backed VM. The only legal move to relieve the
+  pressure is migrating the Ceph VM (its disks stay put on shared storage,
+  so it carries no local disk at all). The solver must find exactly that
+  move and must not attempt to migrate the pinned local-storage guests.
+
+balancing:
+  method: memory
+  balanciness: 3
+  cpu_overcommit: 2.0
+
+nodes:
+  prox-dev-152:
+    cpu_total: 16
+    memory_total_gb: 64
+    storage_free:
+      local-152: 10
+  prox-dev-154:
+    cpu_total: 16
+    memory_total_gb: 64
+    storage_free:
+      local-154: 9
+  prox-dev-156:
+    cpu_total: 16
+    memory_total_gb: 64
+    storage_free:
+      local-156: 10
+
+vms:
+  # prox-dev-154: 32 GB used (50%), two guests welded to local-154
+  appliance-a:
+    node: prox-dev-154
+    cpu: 4
+    memory_gb: 8
+    disks:
+      local-154: 4
+    type: vm
+  appliance-b:
+    node: prox-dev-154
+    cpu: 4
+    memory_gb: 8
+    disks:
+      local-154: 3
+    type: vm
+  # Ceph-backed: shared disks are excluded from the model entirely,
+  # so the guest carries no local disk and is free to move.
+  ceph-worker:
+    node: prox-dev-154
+    cpu: 4
+    memory_gb: 16
+    type: vm
+
+  # The other nodes idle along with one small CT each.
+  monitoring:
+    node: prox-dev-152
+    cpu: 1
+    memory_gb: 1
+    disks:
+      local-152: 1
+    type: ct
+  proxy:
+    node: prox-dev-156
+    cpu: 1
+    memory_gb: 1
+    disks:
+      local-156: 1
+    type: ct
+
+# Node 154 sits at 50% raw memory while 152/156 are at ~1.6%. The gap far
+# exceeds the balanciness=3 trigger, so the solver must act. The appliances
+# cannot move (their storage id has zero capacity elsewhere), leaving the
+# Ceph VM as the only mobile guest: exactly one migration, spread improved.
+expect:
+  feasible: true
+  constraints_satisfied: true
+  spread_improved: true
+  max_migrations: 1

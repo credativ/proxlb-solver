@@ -242,6 +242,12 @@ def solve(cluster: Cluster, time_limit_s: float = 30.0, forbidden_placements: li
     model = cp_model.CpModel()
     nodes, vms, bal, cons = cluster.nodes, cluster.vms, cluster.balancing, cluster.constraints
 
+    if bal.method == "disk" and bal.mode == "assigned":
+        # Disk balancing has no assigned/used distinction (unlike CPU): there
+        # is no provisioned disk view in the model yet, so it always balances
+        # by allocated bytes. Surface the silent degradation.
+        logger.warning("[solver] method=disk ignores mode=assigned: no provisioned disk data in the model; balancing by allocated bytes (mode=used).")
+
     # 2. Determine balancing strategy and weights
     current_gap = _initial_load_gap(cluster)
     eff_wb, eff_ws = _resolve_balancing(bal, current_gap, cluster)
@@ -284,11 +290,14 @@ def solve(cluster: Cluster, time_limit_s: float = 30.0, forbidden_placements: li
         usable_cpu = max(0, node.cpu_total - node.cpu_reserve)
         model.add(sum(vms[i].cpu * 1000 * x[i][j] for i in range(len(vms))) <= usable_cpu * int(bal.cpu_overcommit * 1000))
 
-    # Storage Capacity per pool
+    # Storage Capacity per pool. Only incoming guests are charged: a resident
+    # guest's disks already occupy space excluded from storage_free, and space
+    # freed by guests moving away is deliberately not credited (it only
+    # materialises after their migration completes).
     all_storages = {s for v in vms for s in v.disks.keys()}
     for sn in all_storages:
         for j, node in enumerate(nodes):
-            model.add(sum((vms[i].disks.get(sn, 0) // _MB) * x[i][j] for i in range(len(vms))) <= max(0, (node.storage_free.get(sn, 0) - node.storage_reserve.get(sn, 0)) // _MB))
+            model.add(sum((vms[i].disks.get(sn, 0) // _MB) * x[i][j] for i in range(len(vms)) if vms[i].node != node.name) <= max(0, (node.storage_free.get(sn, 0) - node.storage_reserve.get(sn, 0)) // _MB))
 
     # 7. Affinity / Anti-Affinity (Hard & Soft)
     soft_penalties = []
