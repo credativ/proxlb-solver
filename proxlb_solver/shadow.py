@@ -41,16 +41,20 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 
 def _normalize_solver_cfg(cfg: Any) -> types.SimpleNamespace:
-    """Convert a dict solver_cfg to a SimpleNamespace; pass Pydantic models through."""
+    """Normalize dict or Pydantic solver_cfg to a consistent SimpleNamespace."""
     if isinstance(cfg, dict):
-        return types.SimpleNamespace(
-            mode=cfg.get("mode", "shadow"),
-            log_dir=cfg.get("log_dir", "/var/log/proxlb/solver"),
-            use_reservations=bool(cfg.get("use_reservations", True)),
-            timeout_seconds=float(cfg.get("timeout_seconds", 30.0)),
-            active_step_retries=int(cfg.get("active_step_retries", 3)),
-        )
-    return cfg  # type: ignore[no-any-return]  # already a Pydantic Config.Solver
+        get = cfg.get
+    else:
+        get = lambda key, default=None: getattr(cfg, key, default)
+
+    return types.SimpleNamespace(
+        mode=get("mode", "shadow"),
+        log_dir=get("log_dir", "/var/log/proxlb/solver"),
+        use_reservations=bool(get("use_reservations", True)),
+        timeout_seconds=float(get("timeout_seconds", 30.0)),
+        active_step_retries=int(get("active_step_retries", 3)),
+        fallback_to_greedy=bool(get("fallback_to_greedy", True)),
+    )
 
 
 def _normalize_proxlb_data(proxlb_data: Any) -> dict[str, Any]:
@@ -607,7 +611,9 @@ def execute_solver_plan(
     number of re-solves and which VMs were permanently pinned.
 
     After the loop, PVE-deferred / unbreakable-cycle / pinned VMs have their
-    original ProxLB ``node_target`` restored so PVE HA can handle them.
+    original ProxLB ``node_target`` restored.  When ``fallback_to_greedy`` is
+    ``True`` (default), one final ProxLB ``Balancing()`` call handles the
+    remainder; when ``False``, those VMs are left for manual or external handling.
     """
     import logging
     from proxlb.models.balancing import Balancing as _Balancing  # late import
@@ -726,7 +732,7 @@ def execute_solver_plan(
     # ── Final pass ───────────────────────────────────────────────────────────
     # Restore original ProxLB node_target for VMs the solver could not place
     # (PVE-deferred, unbreakable cycles, persistently failed migrations).
-    # PVE HA will handle them via one final Balancing() call.
+    # PVE HA will handle them via one final Balancing() call when enabled.
     remainder = set(plan.pve_deferred) | set(plan.unbreakable_cycle) | pinned
     for vm_name in remainder:
         if vm_name in guests:
@@ -736,8 +742,14 @@ def execute_solver_plan(
         _guest_get(guests[n], "node_target") != _guest_get(guests[n], "node_current")
         for n in remainder if n in guests
     ):
-        log.info(f"[solver] active: handing {len(remainder)} remainder VM(s) to ProxLB Balancing")
-        try:
-            _Balancing.balance(proxmox_api, proxlb_data)
-        except Exception as exc:
-            log.warning(f"[solver] active: remainder Balancing() failed: {exc}")
+        if cfg.fallback_to_greedy:
+            log.info(
+                f"[solver] active: handing {len(remainder)} remainder VM(s) "
+                "to ProxLB Balancing"
+            )
+            try:
+                _Balancing.balance(proxmox_api, proxlb_data)
+            except Exception as exc:
+                log.warning(f"[solver] active: remainder Balancing() failed: {exc}")
+        else:
+            log.warning(f"[solver] active: skipping remainder Balancing() for {len(remainder)} VM(s) (fallback_to_greedy=False)")

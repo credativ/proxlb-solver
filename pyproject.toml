@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "proxlb-solver"
-version = "0.1.1"
+version = "0.1.2"
 description = "CP-SAT based VM placement solver for ProxLB"
 readme = "README.md"
 license = { text = "GPL-3.0-or-later" }
