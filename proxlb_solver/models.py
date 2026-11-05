@@ -12,8 +12,67 @@ Units used throughout the project:
 """
 
 from __future__ import annotations
-from typing import Any, Optional
+from enum import StrEnum
+from typing import Any, Optional, assert_never
 from pydantic import BaseModel, Field, ConfigDict
+
+
+class Resource(StrEnum):
+    """A resource the solver can balance."""
+    Cpu = "cpu"
+    Memory = "memory"
+    Disk = "disk"   # local storage; the ``io_*`` methods balance this resource
+
+
+class Method(StrEnum):
+    """Balancing method.
+
+    Mirrors ProxLB's ``Config.Solver.Method`` (kept in sync by a unit test).
+    The solver defines its own copy so that it stays importable without ProxLB.
+    """
+    Cpu = "cpu"
+    CpuPsi = "cpu_psi"
+    CpuSmart = "cpu_smart"
+    Disk = "disk"
+    GlobalSmart = "global_smart"
+    IoPsi = "io_psi"
+    IoSmart = "io_smart"
+    Memory = "memory"
+    MemoryPsi = "memory_psi"
+    MemorySmart = "memory_smart"
+
+    @property
+    def resource(self) -> Resource:
+        """The single resource this method balances.
+
+        Raises ValueError for ``global_smart``, which balances all resources.
+        """
+        if self is Method.GlobalSmart:
+            raise ValueError("global_smart balances all resources")
+        return _METHOD_RESOURCE[self]
+
+    @property
+    def is_psi(self) -> bool:
+        """True for the pressure-only methods (``*_psi``)."""
+        return self in (Method.CpuPsi, Method.MemoryPsi, Method.IoPsi)
+
+    @property
+    def is_smart(self) -> bool:
+        """True for the single-resource usage+pressure methods (``*_smart``)."""
+        return self in (Method.CpuSmart, Method.MemorySmart, Method.IoSmart)
+
+
+_METHOD_RESOURCE: dict[Method, Resource] = {
+    Method.Cpu: Resource.Cpu,
+    Method.CpuPsi: Resource.Cpu,
+    Method.CpuSmart: Resource.Cpu,
+    Method.Memory: Resource.Memory,
+    Method.MemoryPsi: Resource.Memory,
+    Method.MemorySmart: Resource.Memory,
+    Method.Disk: Resource.Disk,
+    Method.IoPsi: Resource.Disk,
+    Method.IoSmart: Resource.Disk,
+}
 
 
 class Node(BaseModel):
@@ -64,6 +123,16 @@ class VM(BaseModel):
 
     vm_type: str = "vm"   # "vm" or "ct"
 
+    def pressure(self, resource: Resource) -> float:
+        """PSI pressure (some, percent) for *resource*."""
+        if resource is Resource.Cpu:
+            return self.cpu_pressure
+        if resource is Resource.Memory:
+            return self.memory_pressure
+        if resource is Resource.Disk:
+            return self.io_pressure
+        assert_never(resource)
+
 
 class Constraints(BaseModel):
     """Container for placement rules.
@@ -86,7 +155,7 @@ class Balancing(BaseModel):
     """Configuration for the balancing algorithm."""
     model_config = ConfigDict(frozen=True)
 
-    method: str = "memory"      # Recommended default: RAM is the most critical resource.
+    method: Method = Method.Memory  # Recommended default: RAM is the most critical resource.
     mode: str = "used"          # Balancing mode: "used", "assigned", or "psi"
     balanciness: int = 3        # 1-5 level. 3 (Moderate) avoids excessive 'ping-pong' moves.
     cpu_overcommit: float = 2.0  # Standard industry default for safe overbooking.

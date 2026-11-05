@@ -22,7 +22,7 @@ from __future__ import annotations
 from collections import defaultdict
 from typing import TYPE_CHECKING, Any
 
-from .models import Balancing, Cluster, Constraints, Expect, Node, VM
+from .models import Balancing, Cluster, Constraints, Expect, Method, Node, VM
 
 if TYPE_CHECKING:
     from proxlb.utils.config_parser import Config
@@ -180,7 +180,7 @@ def from_proxlb_data(
         name="Live Cluster",
         description="Auto-generated from ProxLB live data",
         balancing=Balancing(
-            method=method or bc.method,
+            method=Method(method or bc.method),
             mode=bc.mode,
             balanciness=bc.balanciness,
             memory_threshold=bc.memory_threshold,
