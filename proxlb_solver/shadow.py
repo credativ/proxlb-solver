@@ -42,6 +42,18 @@ if TYPE_CHECKING:
 # Internal helpers
 # ---------------------------------------------------------------------------
 
+def _effective_method(
+    proxlb_data: ProxLbData, solver_cfg: Config.Solver,
+) -> str:
+    """Return the method the solver optimises for.
+
+    ``solver.method`` overrides ``balancing.method`` so the solver-only
+    methods (``*_psi``, ``*_smart``, ``global_smart``) can be used while
+    ProxLB's greedy balancer keeps a method it understands.
+    """
+    return str(solver_cfg.method or proxlb_data.meta.balancing.method)
+
+
 def _ts() -> str:
     return datetime.datetime.now(datetime.timezone.utc).isoformat()
 
@@ -82,7 +94,7 @@ def run_shadow(proxlb_data: ProxLbData, solver_cfg: Config.Solver) -> tuple[str 
     max_step_retries = solver_cfg.active_step_retries
     balancing_cfg    = proxlb_data.meta.balancing
     balanciness      = balancing_cfg.balanciness
-    method           = balancing_cfg.method
+    method           = _effective_method(proxlb_data, solver_cfg)
 
     log.info(
         f"[solver] starting — "
@@ -152,7 +164,11 @@ def _shadow_inner(
         from .solver import solve
         from .planner import plan_migrations
 
-        cluster = from_proxlb_data(proxlb_data, use_reservations=solver_cfg.use_reservations)
+        cluster = from_proxlb_data(
+            proxlb_data,
+            use_reservations=solver_cfg.use_reservations,
+            method=solver_cfg.method,
+        )
 
         # Log all identified constraints before solving so the full rule picture
         # is always visible, even if the solver fails or times out.
@@ -242,8 +258,7 @@ def _write_cluster_state(proxlb_data: ProxLbData, solver_cfg: Config.Solver, f: 
     Captures per-node memory and CPU totals plus the current VM placement so
     the reporter can compute the projected load after applying the solver plan.
     """
-    balancing_cfg = proxlb_data.meta.balancing
-    method = balancing_cfg.method
+    method = _effective_method(proxlb_data, solver_cfg)
 
     nodes: dict[str, Any] = {}
     for name, nd in proxlb_data.nodes.items():
@@ -561,6 +576,7 @@ def execute_solver_plan(
     max_step_retries = solver_cfg.active_step_retries
     use_res          = solver_cfg.use_reservations
     time_limit       = solver_cfg.timeout_seconds
+    method           = solver_cfg.method
 
     plan   = initial_plan
     pinned: set[str] = set()
@@ -628,7 +644,7 @@ def execute_solver_plan(
         from .planner import plan_migrations as _plan_migs
 
         cluster  = from_proxlb_data(proxlb_data, use_reservations=use_res,
-                                    pin_vms=pinned)
+                                    pin_vms=pinned, method=method)
         solution = solve(cluster, time_limit_s=time_limit)
         _log_resolve(run_file, solution, step_retry)
 

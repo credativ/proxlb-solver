@@ -78,6 +78,13 @@ ProxLB supports multiple optimization dimensions via the `method` parameter:
 | `cpu_smart` | CPU load + PSI | Balance of throughput and responsiveness. |
 | `global_smart` | RAM + CPU + IO | **Holistic cluster-wide optimization**. |
 
+`memory_psi`, `io_psi`, `memory_smart` and `io_smart` work analogously for the other resources.
+
+By default the solver uses ProxLB's `balancing.method`. Since ProxLB's own balancer only understands
+`memory`, `cpu` and `disk`, set `solver.method` in `proxlb.yaml` to use any of the solver-only methods above;
+it overrides `balancing.method` for the solver while ProxLB's greedy balancer (and its fallback) keep using
+`balancing.method`.
+
 ### RAM: configured allocation vs. actual RSS
 The solver balances RAM by **configured allocation**, not actual RSS. This is correct for capacity planning — a VM configured with 4 GiB must be placed on a node that has 4 GiB reserved, regardless of its current usage.
 

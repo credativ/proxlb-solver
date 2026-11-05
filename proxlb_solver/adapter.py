@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING, Any
 from .models import Balancing, Cluster, Constraints, Expect, Node, VM
 
 if TYPE_CHECKING:
+    from proxlb.utils.config_parser import Config
     from proxlb.utils.proxlb_data import ProxLbData
 
 
@@ -56,6 +57,7 @@ def from_proxlb_data(
     proxlb_data: ProxLbData,
     use_reservations: bool = True,
     pin_vms: set[str] | None = None,
+    method: Config.Solver.Method | None = None,
 ) -> Cluster:
     """
     Convert ProxLbData into a Cluster ready for the solver.
@@ -65,6 +67,8 @@ def from_proxlb_data(
         use_reservations: If True, node memory reservations are applied explicitly.
         pin_vms:          VM names to force-pin to their current node (active-mode
                           retry: VMs that failed to migrate previously).
+        method:           Balancing method override (``solver.method``). When
+                          ``None``, ``meta.balancing.method`` is used.
     """
     # Lazy: only needed when from_proxlb_data is actually called.
     from proxlb.utils.config_parser import Config
@@ -200,7 +204,7 @@ def from_proxlb_data(
         name="Live Cluster",
         description="Auto-generated from ProxLB live data",
         balancing=Balancing(
-            method=bc.method,
+            method=method or bc.method,
             mode=bc.mode,
             balanciness=bc.balanciness,
             memory_threshold=bc.memory_threshold,

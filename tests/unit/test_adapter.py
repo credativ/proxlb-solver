@@ -379,3 +379,34 @@ def test_parallel_jobs_below_one_is_clamped(parallel_jobs: int) -> None:
     data.meta.balancing.parallel_jobs = parallel_jobs
     cluster = from_proxlb_data(data)
     assert cluster.balancing.max_parallel_migrations == 1
+
+
+# ---------------------------------------------------------------------------
+# Balancing method override (solver.method, issue credativ/ProxLB#124)
+# ---------------------------------------------------------------------------
+
+def test_method_defaults_to_balancing_method() -> None:
+    """Without an override, the solver uses meta.balancing.method."""
+    from proxlb_solver.adapter import from_proxlb_data
+
+    cluster = from_proxlb_data(_base_data())
+    assert cluster.balancing.method == "memory"
+
+
+@pytest.mark.parametrize("method", list(Config.Solver.Method))
+def test_method_override_takes_precedence(method: Config.Solver.Method) -> None:
+    """An explicit method (solver.method) overrides meta.balancing.method."""
+    from proxlb_solver.adapter import from_proxlb_data
+
+    cluster = from_proxlb_data(_base_data(), method=method)
+    assert cluster.balancing.method == method
+
+
+def test_method_override_none_falls_back() -> None:
+    """method=None behaves like no override."""
+    from proxlb_solver.adapter import from_proxlb_data
+
+    data = _base_data()
+    data.meta.balancing.method = _Resource.Cpu
+    cluster = from_proxlb_data(data, method=None)
+    assert cluster.balancing.method == "cpu"
