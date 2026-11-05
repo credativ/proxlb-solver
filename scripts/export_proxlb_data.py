@@ -56,11 +56,7 @@ def export_data(config_path, output_path):
     )
 
     with open(output_path, 'w') as f:
-        # Pydantic v2 support
-        if hasattr(proxlb_data, "model_dump_json"):
-            f.write(proxlb_data.model_dump_json(indent=2, by_alias=True))
-        else:
-            f.write(proxlb_data.json(indent=2, by_alias=True))
+        f.write(proxlb_data.model_dump_json(indent=2, by_alias=True))
     print(f"Success: Data exported to {output_path}")
 
 if __name__ == "__main__":
