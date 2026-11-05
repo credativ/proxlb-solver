@@ -30,7 +30,7 @@ import traceback
 import logging
 from typing import TYPE_CHECKING, Any, IO
 
-from .models import Cluster, MigrationPlan, MigrationStep, Solution
+from .models import Cluster, Method, MigrationPlan, MigrationStep, Solution
 
 if TYPE_CHECKING:
     from proxlb.utils.proxlb_data import ProxLbData
@@ -44,14 +44,14 @@ if TYPE_CHECKING:
 
 def _effective_method(
     proxlb_data: ProxLbData, solver_cfg: Config.Solver,
-) -> str:
+) -> Method:
     """Return the method the solver optimises for.
 
     ``solver.method`` overrides ``balancing.method`` so the solver-only
     methods (``*_psi``, ``*_smart``, ``global_smart``) can be used while
     ProxLB's greedy balancer keeps a method it understands.
     """
-    return str(solver_cfg.method or proxlb_data.meta.balancing.method)
+    return Method(solver_cfg.method or proxlb_data.meta.balancing.method)
 
 
 def _ts() -> str:
