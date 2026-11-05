@@ -65,8 +65,6 @@ def _make_run_file(log_dir: str) -> str:
 def run_shadow(proxlb_data: ProxLbData, solver_cfg: Config.Solver) -> tuple[str | None, MigrationPlan | None]:
     """Run solver in shadow mode.
 
-    Accepts either plain dicts (standalone/tests) or Pydantic models (ProxLB 2.0).
-
     Writes a structured JSONL file to solver_cfg.log_dir and logs one
     summary line to the 'proxlb' logger. Never modifies the cluster.
 
@@ -75,18 +73,14 @@ def run_shadow(proxlb_data: ProxLbData, solver_cfg: Config.Solver) -> tuple[str 
     created) and *migration_plan* is the :class:`MigrationPlan` produced by
     the solver (``None`` on infeasibility or error).
     """
-    import logging
     log = logging.getLogger("ProxLB")
 
-    data = proxlb_data
-    cfg  = solver_cfg
-
-    mode             = str(cfg.mode)
-    log_dir          = cfg.log_dir
-    use_reservations = cfg.use_reservations
-    timeout_seconds  = cfg.timeout_seconds
-    max_step_retries = cfg.active_step_retries
-    balancing_cfg    = data.meta.balancing
+    mode             = str(solver_cfg.mode)
+    log_dir          = solver_cfg.log_dir
+    use_reservations = solver_cfg.use_reservations
+    timeout_seconds  = solver_cfg.timeout_seconds
+    max_step_retries = solver_cfg.active_step_retries
+    balancing_cfg    = proxlb_data.meta.balancing
     balanciness      = balancing_cfg.balanciness
     method           = balancing_cfg.method
 
@@ -110,7 +104,7 @@ def run_shadow(proxlb_data: ProxLbData, solver_cfg: Config.Solver) -> tuple[str 
     _plan = None
     try:
         with open(run_file, "w") as f:
-            _plan = _shadow_inner(data, cfg, f, log, run_file)
+            _plan = _shadow_inner(proxlb_data, solver_cfg, f, log, run_file)
     except Exception as exc:  # noqa: BLE001
         # Safety net — _shadow_inner handles its own errors; this catches
         # unexpected failures outside that scope (e.g. file write errors).
@@ -311,7 +305,7 @@ def _write_constraints(cluster: Cluster, f: IO[str]) -> None:
             "name": rule["name"],
             "origin": rule["origin"],
             "vms": rule["vms"],
-            "hard": rule.get("hard", True),
+            "hard": rule["hard"],
         })
 
     for rule in cluster.constraints.anti_affinity:
@@ -321,7 +315,7 @@ def _write_constraints(cluster: Cluster, f: IO[str]) -> None:
             "name": rule["name"],
             "origin": rule["origin"],
             "vms": rule["vms"],
-            "hard": rule.get("hard", True),
+            "hard": rule["hard"],
         })
 
     for rule in cluster.constraints.pin:
@@ -330,7 +324,7 @@ def _write_constraints(cluster: Cluster, f: IO[str]) -> None:
             "type": "pin",
             "vm": rule["vm"],
             "nodes": rule["nodes"],
-            "origins": rule.get("origins", []),
+            "origins": rule["origins"],
         })
 
     for vm_name in cluster.constraints.ignore:
@@ -512,7 +506,7 @@ def _execute_single_step(
     newly_failed: set[str] = set()
 
     for vm_name, expected in step_migrations.items():
-        actual = actual_map.get(vm_name)
+        actual = actual_map[vm_name]
         success = actual == expected
 
         if success and vm_name in guests:
@@ -560,16 +554,13 @@ def execute_solver_plan(
     After the loop, PVE-deferred / unbreakable-cycle / pinned VMs have their
     original ProxLB ``node_target`` restored so PVE HA can handle them.
     """
-    import logging
     from proxlb.models.balancing import Balancing as _Balancing  # late import
 
     log = logging.getLogger("ProxLB")
 
-    cfg = solver_cfg
-
-    max_step_retries = cfg.active_step_retries
-    use_res          = cfg.use_reservations
-    time_limit       = cfg.timeout_seconds
+    max_step_retries = solver_cfg.active_step_retries
+    use_res          = solver_cfg.use_reservations
+    time_limit       = solver_cfg.timeout_seconds
 
     plan   = initial_plan
     pinned: set[str] = set()
@@ -600,7 +591,6 @@ def execute_solver_plan(
         )
 
         if not failed:
-            succeeded = set(vms_in_step) - failed
             log.info(
                 f"[solver] active: step {step.step} succeeded "
                 f"({len(vms_in_step)} VM(s) migrated)"
