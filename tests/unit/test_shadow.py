@@ -750,3 +750,93 @@ def test_active_step_result_has_step_retry_field(tmp_path: Path) -> None:
     assert len(step_results) == 1
     assert "step_retry" in step_results[0]
     assert step_results[0]["step_retry"] == 0
+
+
+# ---------------------------------------------------------------------------
+# solver.method override (issue credativ/ProxLB#124)
+# ---------------------------------------------------------------------------
+
+def test_run_shadow_solver_method_overrides_balancing_method(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture,
+) -> None:
+    """solver.method is used instead of meta.balancing.method."""
+    from proxlb_solver import solver as _solver_mod
+    from proxlb_solver.shadow import run_shadow
+
+    seen: list[str] = []
+    real_solve = _solver_mod.solve
+
+    def _spy(cluster: Any, **kw: Any) -> Solution:
+        seen.append(cluster.balancing.method)
+        return real_solve(cluster, **kw)
+
+    solver_cfg = Config.Solver(log_dir=str(tmp_path), method=Config.Solver.Method.CpuSmart)
+    with caplog.at_level(logging.INFO, logger="ProxLB"):
+        with mock_patch("proxlb_solver.solver.solve", side_effect=_spy):
+            run_file, _ = run_shadow(_MINIMAL_PROXLB_DATA, solver_cfg)
+
+    assert seen == ["cpu_smart"]
+    assert run_file is not None
+    state = next(e for e in _read_jsonl(run_file) if e["event"] == "cluster_state")
+    assert state["method"] == "cpu_smart"
+    assert any("method=cpu_smart" in r.message for r in caplog.records)
+
+
+def test_run_shadow_without_solver_method_uses_balancing_method(tmp_path: Path) -> None:
+    """No solver.method → meta.balancing.method is used."""
+    from proxlb_solver.shadow import run_shadow
+
+    run_file, _ = run_shadow(_MINIMAL_PROXLB_DATA, Config.Solver(log_dir=str(tmp_path)))
+    assert run_file is not None
+    state = next(e for e in _read_jsonl(run_file) if e["event"] == "cluster_state")
+    assert state["method"] == "memory"
+
+
+def test_effective_method() -> None:
+    """solver.method if set, otherwise balancing.method."""
+    from proxlb_solver.shadow import _effective_method
+
+    unset = Config.Solver()
+    override = Config.Solver(method=Config.Solver.Method.GlobalSmart)
+    assert _effective_method(_MINIMAL_PROXLB_DATA, unset) == "memory"
+    assert _effective_method(_MINIMAL_PROXLB_DATA, override) == "global_smart"
+
+
+def test_execute_solver_plan_resolve_uses_solver_method(tmp_path: Path) -> None:
+    """Re-solves in active mode must keep using solver.method."""
+    data = copy.deepcopy(_MINIMAL_PROXLB_DATA)
+    plan = _make_one_step_plan("vm-100", "node1", "node2")
+
+    mock_api = MagicMock()
+    mock_api.cluster.resources.get.return_value = [
+        {"name": "vm-100", "node": "node1"},   # migration failed → re-solve
+        {"name": "vm-101", "node": "node2"},
+    ]
+    empty_plan = MigrationPlan(steps=[], dependency_edges=[], temp_moves=[])
+    mock_solution = Solution(
+        feasible=True,
+        placements={"vm-100": "node1", "vm-101": "node2"},
+        migrations=[],
+        stats=SolverStats(status="OPTIMAL", objective=0, load_gap=0.0,
+                          migration_count=0, wall_time_ms=1.0),
+    )
+    seen: list[str] = []
+
+    def _spy(cluster: Any, **kw: Any) -> Solution:
+        seen.append(cluster.balancing.method)
+        return mock_solution
+
+    _, patch_dict = _make_mock_proxlb_modules()
+    run_file = str(tmp_path / "run.jsonl")
+    open(run_file, "w").close()
+    solver_cfg = Config.Solver(
+        active_step_retries=1, timeout_seconds=5, method=Config.Solver.Method.GlobalSmart,
+    )
+
+    with patch.dict(sys.modules, patch_dict):
+        with mock_patch("proxlb_solver.solver.solve", side_effect=_spy):
+            with mock_patch("proxlb_solver.planner.plan_migrations", return_value=empty_plan):
+                from proxlb_solver.shadow import execute_solver_plan
+                execute_solver_plan(mock_api, data, plan, solver_cfg, run_file)
+
+    assert seen == ["global_smart"]

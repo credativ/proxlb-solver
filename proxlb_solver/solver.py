@@ -18,7 +18,7 @@ import time
 import logging
 from ortools.sat.python import cp_model
 
-from .models import Balancing, Cluster, Migration, Solution, SolverStats, MigrationPlan
+from .models import Balancing, Cluster, Method, Migration, Resource, Solution, SolverStats, MigrationPlan
 from .planner import plan_migrations
 from .validator import validate_and_merge_constraints, RuleConflictError
 
@@ -43,7 +43,7 @@ _BALANCINESS_PROFILES = {
 }
 
 
-def _get_node_load_and_capacity(cluster: Cluster, node_name: str, resource_type: str) -> tuple[float, float]:
+def _get_node_load_and_capacity(cluster: Cluster, node_name: str, resource_type: Resource) -> tuple[float, float]:
     """
     Calculates raw usage and total capacity for a node and resource type.
 
@@ -58,7 +58,7 @@ def _get_node_load_and_capacity(cluster: Cluster, node_name: str, resource_type:
     vms_on_node = [vm for vm in cluster.vms if vm.node == node_name]
 
     usage: float
-    if resource_type == "cpu":
+    if resource_type is Resource.Cpu:
         capacity = max(1.0, float(node.cpu_total - node.cpu_reserve))
         if bal.mode == "assigned":
             # Assigned Mode: Use sum of configured vCPUs
@@ -67,23 +67,20 @@ def _get_node_load_and_capacity(cluster: Cluster, node_name: str, resource_type:
             # Used Mode (Default): Use sum of actual CPU core usage
             usage = sum(vm.cpu_usage * vm.priority for vm in vms_on_node)
 
-    elif resource_type == "memory":
+    elif resource_type is Resource.Memory:
         capacity = max(1.0, float(node.memory_total - node.memory_reserve))
         # RAM balancing always uses configured allocation (most critical resource)
         usage = float(sum(vm.memory * vm.priority for vm in vms_on_node))
 
-    elif resource_type == "disk" or resource_type == "io":
+    else:  # Resource.Disk
         # Disk balancing looks at the sum of all local virtual disks
         capacity = max(1.0, float(sum(node.storage_free.values())))
         usage = float(sum(sum(vm.disks.values()) * vm.priority for vm in vms_on_node))
 
-    else:
-        return 0.0, 1.0
-
     return usage, capacity
 
 
-def _initial_load_gap_single(cluster: Cluster, resource_type: str, use_psi: bool = False) -> float:
+def _initial_load_gap_single(cluster: Cluster, resource_type: Resource, use_psi: bool = False) -> float:
     """
     Calculates the load gap (Spread) for a specific resource type.
     The gap is defined as the difference between the most loaded and least loaded node.
@@ -100,8 +97,7 @@ def _initial_load_gap_single(cluster: Cluster, resource_type: str, use_psi: bool
         if use_psi:
             # Pressure is always relative to a fixed 100% capacity per node
             vms_on_node = [vm for vm in cluster.vms if vm.node == node.name]
-            p_val = lambda v: v.cpu_pressure if resource_type == "cpu" else v.memory_pressure if resource_type == "memory" else v.io_pressure  # noqa: E731
-            usage = float(sum(p_val(vm) * vm.priority for vm in vms_on_node))  # type: ignore[no-untyped-call]
+            usage = float(sum(vm.pressure(resource_type) * vm.priority for vm in vms_on_node))
             capacity = 100.0
         else:
             usage, capacity = _get_node_load_and_capacity(cluster, node.name, resource_type)
@@ -121,24 +117,32 @@ def _initial_load_gap(cluster: Cluster) -> float:
     method = bal.method
 
     # Handle multi-resource 'smart' modes
-    if method == "global_smart":
-        m_gap = _initial_load_gap_single(cluster, "memory")
-        c_gap = _initial_load_gap_single(cluster, "cpu")
-        i_gap = _initial_load_gap_single(cluster, "io")
+    if method is Method.GlobalSmart:
+        m_gap = _initial_load_gap_single(cluster, Resource.Memory)
+        c_gap = _initial_load_gap_single(cluster, Resource.Cpu)
+        i_gap = _initial_load_gap_single(cluster, Resource.Disk)
         total_w = bal.w_global_mem + bal.w_global_cpu + bal.w_global_io
         return (bal.w_global_mem * m_gap + bal.w_global_cpu * c_gap + bal.w_global_io * i_gap) / total_w if total_w else m_gap
 
-    if method.endswith("_smart"):
-        res = method.split("_")[0]
+    res = method.resource
+    if method.is_smart:
         u_gap = _initial_load_gap_single(cluster, res, use_psi=False)
         p_gap = _initial_load_gap_single(cluster, res, use_psi=True)
-        w_u, w_p = (bal.w_cpu_usage, bal.w_cpu_psi) if res == "cpu" else (bal.w_mem_usage, bal.w_mem_psi) if res == "memory" else (bal.w_io_usage, bal.w_io_psi)
+        w_u, w_p = _smart_weights(bal, res)
         return (w_u * u_gap + w_p * p_gap) / (w_u + w_p) if (w_u + w_p) else u_gap
 
     # Standard single-resource modes
-    use_psi = method.endswith("_psi") or bal.mode == "psi"
-    res = method.split("_")[0] if "_" in method else method
+    use_psi = method.is_psi or bal.mode == "psi"
     return _initial_load_gap_single(cluster, res, use_psi=use_psi)
+
+
+def _smart_weights(bal: Balancing, resource: Resource) -> tuple[int, int]:
+    """(usage weight, pressure weight) for a ``*_smart`` method on *resource*."""
+    if resource is Resource.Cpu:
+        return bal.w_cpu_usage, bal.w_cpu_psi
+    if resource is Resource.Memory:
+        return bal.w_mem_usage, bal.w_mem_psi
+    return bal.w_io_usage, bal.w_io_psi
 
 
 def _resolve_balancing(bal: Balancing, current_gap: float, cluster: Cluster) -> tuple[int, int]:
@@ -165,9 +169,9 @@ def _resolve_balancing(bal: Balancing, current_gap: float, cluster: Cluster) -> 
     active_thresholds = False
 
     threshold_mapping = [
-        ("cpu", bal.cpu_threshold),
-        ("memory", bal.memory_threshold),
-        ("disk", bal.disk_threshold)
+        (Resource.Cpu, bal.cpu_threshold),
+        (Resource.Memory, bal.memory_threshold),
+        (Resource.Disk, bal.disk_threshold)
     ]
 
     for res_type, limit in threshold_mapping:
@@ -178,9 +182,9 @@ def _resolve_balancing(bal: Balancing, current_gap: float, cluster: Cluster) -> 
 
             # Threshold check always uses raw values (no priority inflation)
             vms_on_node = [vm for vm in cluster.vms if vm.node == node.name]
-            if res_type == "cpu":
+            if res_type is Resource.Cpu:
                 usage, cap = sum(vm.cpu_usage for vm in vms_on_node), node.cpu_total
-            elif res_type == "memory":
+            elif res_type is Resource.Memory:
                 usage, cap = sum(vm.memory for vm in vms_on_node), node.memory_total
             else: # disk
                 usage, cap = sum(sum(vm.disks.values()) for vm in vms_on_node), sum(node.storage_free.values()) or 1
@@ -328,7 +332,7 @@ def solve(cluster: Cluster, time_limit_s: float = 30.0, forbidden_placements: li
     # 8. Optimization Objective (Gap Minimization)
     max_load_val = _LOAD_SCALE * 15
 
-    def add_resource_gap(resource_type: str, use_psi: bool = False) -> "cp_model.IntVar":
+    def add_resource_gap(resource_type: Resource, use_psi: bool = False) -> "cp_model.IntVar":
         """Helper to create balanced-load variables."""
         node_loads = []
         for j, node in enumerate(nodes):
@@ -336,22 +340,21 @@ def solve(cluster: Cluster, time_limit_s: float = 30.0, forbidden_placements: li
 
             if use_psi:
                 cap = 100
-                res_p = lambda v: v.cpu_pressure if resource_type == "cpu" else v.memory_pressure if resource_type == "memory" else v.io_pressure  # noqa: E731
-                coeffs = [int(res_p(vms[i]) * vms[i].priority * _LOAD_SCALE) for i in range(len(vms))]  # type: ignore[no-untyped-call]
+                coeffs = [int(vms[i].pressure(resource_type) * vms[i].priority * _LOAD_SCALE) for i in range(len(vms))]
                 used_expr = sum(coeffs[i] * x[i][j] for i in range(len(vms)))
             else:
-                if resource_type == "cpu":
+                if resource_type is Resource.Cpu:
                     cap = max(1, node.cpu_total - node.cpu_reserve)
                     if bal.mode == "assigned":
                         coeffs = [vms[i].cpu * vms[i].priority * _LOAD_SCALE for i in range(len(vms))]
                     else:
                         coeffs = [int(vms[i].cpu_usage * vms[i].priority * _LOAD_SCALE) for i in range(len(vms))]
                     used_expr = sum(coeffs[i] * x[i][j] for i in range(len(vms)))
-                elif resource_type == "memory":
+                elif resource_type is Resource.Memory:
                     cap = max(1, (node.memory_total - node.memory_reserve) // _MB)
                     coeffs = [(vms[i].memory * vms[i].priority // _MB) * _LOAD_SCALE for i in range(len(vms))]
                     used_expr = sum(coeffs[i] * x[i][j] for i in range(len(vms)))
-                else:  # disk / io
+                else:  # Resource.Disk
                     cap = max(1, sum(node.storage_free.values()) // _MB)
                     coeffs = [(sum(vms[i].disks.values()) * vms[i].priority // _MB) * _LOAD_SCALE for i in range(len(vms))]
                     used_expr = sum(coeffs[i] * x[i][j] for i in range(len(vms)))
@@ -375,24 +378,23 @@ def solve(cluster: Cluster, time_limit_s: float = 30.0, forbidden_placements: li
         return gap
 
     method = bal.method
-    if method == "global_smart":
-        ug_m, pg_m = add_resource_gap("memory"), add_resource_gap("memory", True)
-        ug_c, pg_c = add_resource_gap("cpu"), add_resource_gap("cpu", True)
-        ug_i, pg_i = add_resource_gap("io"), add_resource_gap("io", True)
+    if method is Method.GlobalSmart:
+        ug_m, pg_m = add_resource_gap(Resource.Memory), add_resource_gap(Resource.Memory, True)
+        ug_c, pg_c = add_resource_gap(Resource.Cpu), add_resource_gap(Resource.Cpu, True)
+        ug_i, pg_i = add_resource_gap(Resource.Disk), add_resource_gap(Resource.Disk, True)
         load_gap = model.new_int_var(0, 50 * max_load_val, "global_gap")
         model.add(load_gap == bal.w_global_mem * (bal.w_mem_usage * ug_m + bal.w_mem_psi * pg_m) +
                           bal.w_global_cpu * (bal.w_cpu_usage * ug_c + bal.w_cpu_psi * pg_c) +
                           bal.w_global_io * (bal.w_io_usage * ug_i + bal.w_io_psi * pg_i))
-    elif method.endswith("_smart"):
-        res = method.split("_")[0]
+    elif method.is_smart:
+        res = method.resource
         ug, pg = add_resource_gap(res), add_resource_gap(res, True)
-        w_u, w_p = (bal.w_cpu_usage, bal.w_cpu_psi) if res == "cpu" else (bal.w_mem_usage, bal.w_mem_psi) if res == "memory" else (bal.w_io_usage, bal.w_io_psi)
+        w_u, w_p = _smart_weights(bal, res)
         load_gap = model.new_int_var(0, 10 * max_load_val, "smart_gap")
         model.add(load_gap == w_u * ug + w_p * pg)
     else:
-        res = method.split("_")[0] if "_" in method else method
-        use_psi = method.endswith("_psi") or bal.mode == "psi"
-        load_gap = add_resource_gap(res, use_psi=use_psi)
+        use_psi = method.is_psi or bal.mode == "psi"
+        load_gap = add_resource_gap(method.resource, use_psi=use_psi)
 
     # 9. Migration Cost (Stickiness)
     _GiB, _COST_UNIT, _LOCAL_DISK_FACTOR = 1024 ** 3, 256 * 1024 * 1024, 4

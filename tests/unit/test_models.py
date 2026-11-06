@@ -8,7 +8,7 @@ from pydantic import ValidationError
 from proxlb_solver.models import (
     Node, VM, Constraints, Balancing, Cluster,
     Migration, MigrationStep, MigrationPlan,
-    SolverStats, Solution, Expect,
+    SolverStats, Solution, Expect, Method, Resource,
 )
 
 _GB = 1024 ** 3
@@ -115,12 +115,55 @@ class TestVM:
         assert vm1.disks is not vm2.disks
 
 
+# ── Method ────────────────────────────────────────────────────────────────────
+
+class TestMethod:
+    @pytest.mark.parametrize("method, resource, is_psi, is_smart", [
+        (Method.Cpu,         Resource.Cpu,    False, False),
+        (Method.CpuPsi,      Resource.Cpu,    True,  False),
+        (Method.CpuSmart,    Resource.Cpu,    False, True),
+        (Method.Memory,      Resource.Memory, False, False),
+        (Method.MemoryPsi,   Resource.Memory, True,  False),
+        (Method.MemorySmart, Resource.Memory, False, True),
+        (Method.Disk,        Resource.Disk,   False, False),
+        (Method.IoPsi,       Resource.Disk,   True,  False),
+        (Method.IoSmart,     Resource.Disk,   False, True),
+    ])
+    def test_single_resource_methods(
+        self, method: Method, resource: Resource, is_psi: bool, is_smart: bool,
+    ) -> None:
+        assert method.resource is resource
+        assert method.is_psi is is_psi
+        assert method.is_smart is is_smart
+
+    def test_global_smart(self) -> None:
+        assert not Method.GlobalSmart.is_psi
+        assert not Method.GlobalSmart.is_smart
+        with pytest.raises(ValueError):
+            Method.GlobalSmart.resource
+
+    def test_balancing_coerces_string(self) -> None:
+        """YAML scenarios pass plain strings; they become Method members."""
+        assert Balancing.model_validate({"method": "io_smart"}).method is Method.IoSmart
+
+    def test_balancing_rejects_unknown_method(self) -> None:
+        with pytest.raises(ValidationError):
+            Balancing.model_validate({"method": "memroy"})
+
+    def test_vm_pressure(self) -> None:
+        vm = VM(name="v", node="n", cpu=1, memory=1,
+                cpu_pressure=1.0, memory_pressure=2.0, io_pressure=3.0)
+        assert vm.pressure(Resource.Cpu) == 1.0
+        assert vm.pressure(Resource.Memory) == 2.0
+        assert vm.pressure(Resource.Disk) == 3.0
+
+
 # ── Balancing ─────────────────────────────────────────────────────────────────
 
 class TestBalancing:
     def test_defaults(self) -> None:
         b = Balancing()
-        assert b.method == "memory"
+        assert b.method is Method.Memory
         assert b.mode == "used"
         assert b.balanciness == 3
         assert b.cpu_overcommit == 2.0
@@ -133,9 +176,9 @@ class TestBalancing:
         assert b.max_node_inflow == 1
 
     def test_custom_values(self) -> None:
-        b = Balancing(method="cpu", balanciness=5, memory_threshold=80.0,
+        b = Balancing(method=Method.Cpu, balanciness=5, memory_threshold=80.0,
                       w_balance=100, max_parallel_migrations=None)
-        assert b.method == "cpu"
+        assert b.method is Method.Cpu
         assert b.balanciness == 5
         assert b.memory_threshold == 80.0
         assert b.w_balance == 100

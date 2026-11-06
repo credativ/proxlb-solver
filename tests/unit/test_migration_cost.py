@@ -4,7 +4,7 @@ The cost model uses 256 MiB base units so that sub-GiB VMs are genuinely
 cheaper to migrate than larger ones. Local disk incurs a 4× penalty.
 """
 
-from proxlb_solver.models import Balancing, Cluster, Constraints, Expect, Node, VM
+from proxlb_solver.models import Balancing, Cluster, Constraints, Expect, Method, Node, VM
 from proxlb_solver.solver import solve
 
 _GiB = 1024 ** 3
@@ -17,7 +17,7 @@ def _cluster(nodes: list[Node], vms: list[VM], balanciness: int = 5, w_stickines
         name="test",
         description="",
         balancing=Balancing(
-            method="memory",
+            method=Method.Memory,
             balanciness=balanciness,
             w_stickiness=w_stickiness,
         ),
