@@ -66,7 +66,8 @@ def _pydantic_to_dict(proxlb_data: "ProxLbData") -> Dict[str, Any]:
         "cpu_threshold":           bc.cpu_threshold,
         "disk_threshold":          bc.disk_threshold,
         "max_node_inflow":         getattr(bc, "max_node_inflow", 1),
-        "max_parallel_migrations": getattr(bc, "max_parallel_migrations", None),
+        "parallel":                bc.parallel,
+        "parallel_jobs":           bc.parallel_jobs,
         "node_resource_reserve":   _reserve_to_dict(bc.node_resource_reserve),
         "pools":                   bc.pools,
     }
@@ -139,6 +140,22 @@ def _get_memory_reserve_bytes(node_name: str, reserve_cfg: dict[str, Any]) -> in
     return int(gb * 1024 ** 3)
 
 
+def _parallel_job_limit(balancing_cfg: dict[str, Any]) -> int:
+    """
+    Returns how many migrations ProxLB will run concurrently.
+
+    Mirrors ProxLB's ``Balancing.get_parallel_job_limit()``: sequential (1)
+    unless ``parallel`` is enabled, in which case ``parallel_jobs`` is used,
+    clamped to at least 1.  Defaults match ProxLB's ``Config.Balancing``.
+
+    ProxLB has no ``max_parallel_migrations`` setting; planning with a larger
+    limit would produce parallel steps that ProxLB executes sequentially.
+    """
+    if not balancing_cfg.get("parallel", False):
+        return 1
+    return max(1, int(balancing_cfg.get("parallel_jobs", 5)))
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -177,7 +194,7 @@ def from_proxlb_data(
         cpu_threshold=balancing_cfg.get("cpu_threshold"),
         disk_threshold=balancing_cfg.get("disk_threshold"),
         max_node_inflow=balancing_cfg.get("max_node_inflow", 1),
-        max_parallel_migrations=balancing_cfg.get("max_parallel_migrations"),
+        max_parallel_migrations=_parallel_job_limit(balancing_cfg),
     )
     reserve_cfg: dict[str, Any] = balancing_cfg.get("node_resource_reserve") or {}
 

@@ -14,7 +14,7 @@ Attribute paths accessed by the adapter
 proxlb_data.meta.balancing:
     .method, .mode, .balanciness, .cpu_overcommit,
     .memory_threshold, .cpu_threshold, .disk_threshold,
-    .max_node_inflow, .max_parallel_migrations,
+    .max_node_inflow, .parallel, .parallel_jobs,
     .node_resource_reserve, .pools
 
 proxlb_data.nodes[name]:
@@ -66,7 +66,8 @@ def _balancing(
     cpu_threshold: None = None,
     disk_threshold: None = None,
     max_node_inflow: int = 1,
-    max_parallel_migrations: None = None,
+    parallel: bool = False,
+    parallel_jobs: int = 5,
     node_resource_reserve: None = None,
     pools: None = None,
 ) -> types.SimpleNamespace:
@@ -79,7 +80,8 @@ def _balancing(
         cpu_threshold=cpu_threshold,
         disk_threshold=disk_threshold,
         max_node_inflow=max_node_inflow,
-        max_parallel_migrations=max_parallel_migrations,
+        parallel=parallel,
+        parallel_jobs=parallel_jobs,
         node_resource_reserve=node_resource_reserve,
         pools=pools,
     )
@@ -493,6 +495,19 @@ class TestBalancingConfig:
         stub = _proxlb_data(balancing=_balancing(memory_threshold=80))
         cluster = from_proxlb_data(stub)
         assert cluster.balancing.memory_threshold == 80
+
+    @pytest.mark.parametrize("parallel, parallel_jobs, expected", [
+        (False, 5, 1),
+        (True,  5, 5),
+        (True,  3, 3),
+        (True,  0, 1),
+    ])
+    def test_parallel_job_limit_propagated(self, parallel, parallel_jobs, expected):
+        from proxlb_solver.adapter import from_proxlb_data
+
+        stub = _proxlb_data(balancing=_balancing(parallel=parallel, parallel_jobs=parallel_jobs))
+        cluster = from_proxlb_data(stub)
+        assert cluster.balancing.max_parallel_migrations == expected
 
     def test_cpu_threshold_propagated(self):
         from proxlb_solver.adapter import from_proxlb_data
