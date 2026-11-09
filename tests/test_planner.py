@@ -1,6 +1,7 @@
 """Unit tests for the migration planner."""
 
 from __future__ import annotations
+from typing import Any
 
 from proxlb_solver.models import (
     Balancing,
@@ -20,8 +21,8 @@ from proxlb_solver.planner import plan_migrations
 _GB = 1024 * 1024 * 1024
 
 
-def _make_stats(**kwargs):
-    defaults = dict(
+def _make_stats(**kwargs: Any) -> SolverStats:
+    defaults: Any = dict(
         status="OPTIMAL",
         objective=0,
         load_gap=0.0,
@@ -32,7 +33,7 @@ def _make_stats(**kwargs):
     return SolverStats(**defaults)
 
 
-def _make_cluster(nodes, vms, balancing=None):
+def _make_cluster(nodes: list[Node], vms: list[VM], balancing: Balancing | None = None) -> Cluster:
     return Cluster(
         name="test",
         description="",
@@ -44,7 +45,7 @@ def _make_cluster(nodes, vms, balancing=None):
     )
 
 
-def test_no_migrations():
+def test_no_migrations() -> None:
     """No migrations should return empty MigrationPlan."""
     cluster = _make_cluster(
         nodes=[Node(name="n1", cpu_total=16, memory_total=64 * _GB)],
@@ -63,7 +64,7 @@ def test_no_migrations():
     assert result.temp_moves == []
 
 
-def test_simple_chain():
+def test_simple_chain() -> None:
     """VM-A -> n2, VM-B -> n3: VM-B must move first if n2 is full."""
     nodes = [
         Node(name="n1", cpu_total=16, memory_total=64 * _GB),
@@ -96,7 +97,7 @@ def test_simple_chain():
     assert result.steps[1].migrations[0].vm == "vm-a"
 
 
-def test_step_ordering():
+def test_step_ordering() -> None:
     """Chain A depends on B: Step 1 = B, Step 2 = A."""
     nodes = [
         Node(name="n1", cpu_total=16, memory_total=64 * _GB),
@@ -128,7 +129,7 @@ def test_step_ordering():
     assert result.steps[1].step == 2
 
 
-def test_independent_migrations():
+def test_independent_migrations() -> None:
     """Independent migrations should all appear."""
     nodes = [
         Node(name="n1", cpu_total=16, memory_total=64 * _GB),
@@ -158,7 +159,7 @@ def test_independent_migrations():
     assert all_vms == {"vm-a", "vm-b"}
 
 
-def test_parallel_detection():
+def test_parallel_detection() -> None:
     """Two independent moves should be in 1 step with parallel=True."""
     nodes = [
         Node(name="n1", cpu_total=16, memory_total=64 * _GB),
@@ -189,7 +190,7 @@ def test_parallel_detection():
     assert len(result.steps[0].migrations) == 2
 
 
-def test_cycle_detection():
+def test_cycle_detection() -> None:
     """Circular dependency: vm-a→n2, vm-b→n1 with both nodes full."""
     nodes = [
         Node(name="n1", cpu_total=16, memory_total=60 * _GB),
@@ -226,7 +227,7 @@ def test_cycle_detection():
     assert final["vm-b"] == "n1"
 
 
-def test_cycle_temp_steps():
+def test_cycle_temp_steps() -> None:
     """Cycle temp move should be in its own step."""
     nodes = [
         Node(name="n1", cpu_total=16, memory_total=60 * _GB),
@@ -259,7 +260,7 @@ def test_cycle_temp_steps():
     assert temp_mig.target == "n3"  # temp node
 
 
-def test_infeasible_passthrough():
+def test_infeasible_passthrough() -> None:
     """Infeasible solution should return empty MigrationPlan."""
     cluster = _make_cluster(
         nodes=[Node(name="n1", cpu_total=16, memory_total=64 * _GB)],
@@ -276,7 +277,7 @@ def test_infeasible_passthrough():
     assert result.steps == []
 
 
-def test_state_tracking():
+def test_state_tracking() -> None:
     """Node utilization should be correct after each step."""
     nodes = [
         Node(name="n1", cpu_total=16, memory_total=64 * _GB),
@@ -306,7 +307,7 @@ def test_state_tracking():
 
     # Simulate state tracking
     from collections import defaultdict
-    node_used = defaultdict(int)
+    node_used: dict[str, int] = defaultdict(int)
     for vm in cluster.vms:
         node_used[vm.node] += vm.memory
 
@@ -328,7 +329,7 @@ def test_state_tracking():
     assert node_used["n3"] == 16 * _GB
 
 
-def test_max_parallel_splits_layer():
+def test_max_parallel_splits_layer() -> None:
     """max_parallel=1 should split 4 independent moves into 4 steps."""
     nodes = [
         Node(name="n1", cpu_total=32, memory_total=128 * _GB),
@@ -381,7 +382,7 @@ def test_max_parallel_splits_layer():
     assert all_vms == {"vm-a", "vm-b", "vm-c", "vm-d"}
 
 
-def test_max_parallel_with_dependencies():
+def test_max_parallel_with_dependencies() -> None:
     """max_parallel should not merge across dependency layers."""
     nodes = [
         Node(name="n1", cpu_total=16, memory_total=64 * _GB),
@@ -412,7 +413,7 @@ def test_max_parallel_with_dependencies():
     assert result.steps[1].migrations[0].vm == "vm-a"
 
 
-def test_max_parallel_none_is_unlimited():
+def test_max_parallel_none_is_unlimited() -> None:
     """max_parallel=None should behave the same as no limit."""
     nodes = [
         Node(name="n1", cpu_total=32, memory_total=128 * _GB),
@@ -446,7 +447,7 @@ def test_max_parallel_none_is_unlimited():
 # ── Constraint-aware temp node selection tests ──────────────────────
 
 
-def _make_cluster_with_constraints(nodes, vms, constraints=None, **kwargs):
+def _make_cluster_with_constraints(nodes: list[Node], vms: list[VM], constraints: Constraints | None = None, **kwargs: Any) -> Cluster:
     return Cluster(
         name="test",
         description="",
@@ -459,7 +460,7 @@ def _make_cluster_with_constraints(nodes, vms, constraints=None, **kwargs):
     )
 
 
-def test_temp_move_respects_pin():
+def test_temp_move_respects_pin() -> None:
     """Cycle-breaking temp node must respect pin constraints.
 
     vm-a is pinned to {n1, n2} — temp move must NOT go to n4,
@@ -501,7 +502,7 @@ def test_temp_move_respects_pin():
     assert temp_mig.target == "n3"
 
 
-def test_temp_move_respects_anti_affinity():
+def test_temp_move_respects_anti_affinity() -> None:
     """Temp node must not host an anti-affinity partner.
 
     vm-a and vm-c are anti-affine. vm-c is on n3.
@@ -542,7 +543,7 @@ def test_temp_move_respects_anti_affinity():
     assert temp_mig.target == "n4"
 
 
-def test_temp_move_respects_ignore():
+def test_temp_move_respects_ignore() -> None:
     """Ignored VMs must never be temp-moved.
 
     If an ignored VM is in a cycle, it cannot be temp-moved.
@@ -578,7 +579,7 @@ def test_temp_move_respects_ignore():
         assert "vm-b" in result.temp_moves
 
 
-def test_temp_move_respects_maintenance():
+def test_temp_move_respects_maintenance() -> None:
     """Temp node must not be a maintenance node."""
     nodes = [
         Node(name="n1", cpu_total=16, memory_total=60 * _GB),
@@ -611,7 +612,7 @@ def test_temp_move_respects_maintenance():
     assert temp_mig.target == "n4"
 
 
-def test_temp_move_respects_ram_capacity():
+def test_temp_move_respects_ram_capacity() -> None:
     """Temp node must have enough RAM for the VM."""
     nodes = [
         Node(name="n1", cpu_total=16, memory_total=60 * _GB),
@@ -645,7 +646,7 @@ def test_temp_move_respects_ram_capacity():
     assert temp_mig.target == "n4"
 
 
-def test_temp_move_respects_cpu_capacity():
+def test_temp_move_respects_cpu_capacity() -> None:
     """Temp node must have enough CPU (with overcommit) for the VM."""
     nodes = [
         Node(name="n1", cpu_total=16, memory_total=60 * _GB),
@@ -683,7 +684,7 @@ def test_temp_move_respects_cpu_capacity():
     assert temp_mig.target == "n4"
 
 
-def test_unbreakable_cycle():
+def test_unbreakable_cycle() -> None:
     """Cycle where no VM can be temp-moved → path_feasible=False."""
     nodes = [
         Node(name="n1", cpu_total=16, memory_total=60 * _GB),
@@ -720,7 +721,7 @@ def test_unbreakable_cycle():
     assert result.steps == []
 
 
-def test_long_cycle_with_full_nodes_is_path_infeasible():
+def test_long_cycle_with_full_nodes_is_path_infeasible() -> None:
     """Regression test for issue #1: long cycle where node-spare (2 GB) cannot
     accommodate vm-0 (3 GB), making the migration sequence unreachable even
     though the solver found a valid final placement.
@@ -784,7 +785,7 @@ def test_long_cycle_with_full_nodes_is_path_infeasible():
     )
 
 
-def test_temp_move_respects_evacuate_node():
+def test_temp_move_respects_evacuate_node() -> None:
     """Temp node must not be the evacuate node."""
     nodes = [
         Node(name="n1", cpu_total=16, memory_total=60 * _GB),
