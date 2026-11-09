@@ -5,6 +5,8 @@ import pytest
 from proxlb.utils.config_parser import Config
 from proxlb.utils.proxlb_data import ProxLbData
 
+from proxlb_solver.models import Method
+
 from ..utils import MINIMAL_DATA, create_guest, create_node, create_node_metric
 
 _GB = 1024 ** 3
@@ -311,7 +313,7 @@ def test_balancing_method_balanciness_and_thresholds_propagated() -> None:
     data.meta.balancing.disk_threshold = 60
 
     cluster = from_proxlb_data(data)
-    assert cluster.balancing.method == "cpu"
+    assert cluster.balancing.method is Method.Cpu
     assert cluster.balancing.balanciness == 5
     assert cluster.balancing.memory_threshold == 80
     assert cluster.balancing.cpu_threshold == 70
@@ -379,3 +381,45 @@ def test_parallel_jobs_below_one_is_clamped(parallel_jobs: int) -> None:
     data.meta.balancing.parallel_jobs = parallel_jobs
     cluster = from_proxlb_data(data)
     assert cluster.balancing.max_parallel_migrations == 1
+
+
+# ---------------------------------------------------------------------------
+# Balancing method override (solver.method, issue credativ/ProxLB#124)
+# ---------------------------------------------------------------------------
+
+def test_method_defaults_to_balancing_method() -> None:
+    """Without an override, the solver uses meta.balancing.method."""
+    from proxlb_solver.adapter import from_proxlb_data
+
+    cluster = from_proxlb_data(_base_data())
+    assert cluster.balancing.method is Method.Memory
+
+
+@pytest.mark.parametrize("method", list(Config.Solver.Method))
+def test_method_override_takes_precedence(method: Config.Solver.Method) -> None:
+    """An explicit method (solver.method) overrides meta.balancing.method."""
+    from proxlb_solver.adapter import from_proxlb_data
+
+    cluster = from_proxlb_data(_base_data(), method=method)
+    assert cluster.balancing.method is Method(method.value)
+
+
+def test_method_override_none_falls_back() -> None:
+    """method=None behaves like no override."""
+    from proxlb_solver.adapter import from_proxlb_data
+
+    data = _base_data()
+    data.meta.balancing.method = _Resource.Cpu
+    cluster = from_proxlb_data(data, method=None)
+    assert cluster.balancing.method is Method.Cpu
+
+
+def test_method_enum_matches_proxlb() -> None:
+    """The solver's Method mirrors ProxLB's Config.Solver.Method exactly."""
+    assert ({(m.name, m.value) for m in Method}
+            == {(m.name, m.value) for m in Config.Solver.Method})
+
+
+def test_balancing_resources_are_methods() -> None:
+    """Every balancing.method value is a valid solver Method (fallback path)."""
+    assert {r.value for r in Config.Balancing.Resource} <= {m.value for m in Method}

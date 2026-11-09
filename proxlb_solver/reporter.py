@@ -7,7 +7,7 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Any
-from .models import Cluster, Migration, Solution, VM, Node, MigrationPlan
+from .models import Cluster, Method, Migration, Solution, VM, Node, MigrationPlan
 
 # ── Gap Calculation Helpers (must match solver logic) ──
 
@@ -45,7 +45,7 @@ def _compute_load_gap(cluster: Cluster, placements: Dict[str, str]) -> float:
     bal = cluster.balancing
     vm_map = {v.name: v for v in cluster.vms}
 
-    if method == "global_smart":
+    if method is Method.GlobalSmart:
         m_gap = (_compute_single_gap(cluster, placements, "memory") * bal.w_mem_usage +
                  _compute_single_gap(cluster, placements, "memory_psi") * bal.w_mem_psi) / (bal.w_mem_usage + bal.w_mem_psi)
         c_gap = (_compute_single_gap(cluster, placements, "cpu") * bal.w_cpu_usage +
@@ -55,13 +55,13 @@ def _compute_load_gap(cluster: Cluster, placements: Dict[str, str]) -> float:
         total_w = bal.w_global_mem + bal.w_global_cpu + bal.w_global_io
         return (bal.w_global_mem * m_gap + bal.w_global_cpu * c_gap + bal.w_global_io * i_gap) / total_w if total_w else m_gap
 
-    if method == "cpu_smart":
+    if method is Method.CpuSmart:
         return (_compute_single_gap(cluster, placements, "cpu") * bal.w_cpu_usage +
                 _compute_single_gap(cluster, placements, "cpu_psi") * bal.w_cpu_psi) / (bal.w_cpu_usage + bal.w_cpu_psi)
-    if method == "memory_smart":
+    if method is Method.MemorySmart:
         return (_compute_single_gap(cluster, placements, "memory") * bal.w_mem_usage +
                 _compute_single_gap(cluster, placements, "memory_psi") * bal.w_mem_psi) / (bal.w_mem_usage + bal.w_mem_psi)
-    if method == "io_smart":
+    if method is Method.IoSmart:
         return (_compute_single_gap(cluster, placements, "io_usage") * bal.w_io_usage +
                 _compute_single_gap(cluster, placements, "io_psi") * bal.w_io_psi) / (bal.w_io_usage + bal.w_io_psi)
 
@@ -70,16 +70,16 @@ def _compute_load_gap(cluster: Cluster, placements: Dict[str, str]) -> float:
     for node in cluster.nodes:
         if node.maintenance: continue
         cap: float
-        if method == "cpu":
+        if method is Method.Cpu:
             used = sum(v.cpu_usage * v.priority for v in cluster.vms if placements.get(v.name) == node.name)
             cap = float(node.cpu_total)
-        elif method == "cpu_psi":
+        elif method is Method.CpuPsi:
             used = sum(v.cpu_pressure * v.priority for v in cluster.vms if placements.get(v.name) == node.name)
             cap = 100.0
-        elif method == "memory_psi":
+        elif method is Method.MemoryPsi:
             used = sum(v.memory_pressure * v.priority for v in cluster.vms if placements.get(v.name) == node.name)
             cap = 100.0
-        elif method == "io_psi":
+        elif method is Method.IoPsi:
             used = sum(v.io_pressure * v.priority for v in cluster.vms if placements.get(v.name) == node.name)
             cap = 100.0
         else: # memory
@@ -155,10 +155,10 @@ def print_report(cluster: Cluster, solution: Solution) -> None:
 
         def get_load_str(placements: Dict[str, str]) -> str:
             # Show the primary metric for the chosen method
-            if method == "cpu":
+            if method is Method.Cpu:
                 u = sum(vm_map[v].cpu_usage for v, n in placements.items() if n == node.name)
                 return f"{u:.1f}/{node.cpu_total} cores"
-            if method == "memory":
+            if method is Method.Memory:
                 m = sum(vm_map[v].memory for v, n in placements.items() if n == node.name)
                 return f"{m / (1024**3):.1f}/{node.memory_total / (1024**3):.1f} GB"
             # Fallback to percentage for smart/psi
@@ -200,11 +200,10 @@ def _get_node_load_pct(cluster: Cluster, node: Node, placements: Dict[str, str])
     method = cluster.balancing.method
     vm_map = {v.name: v for v in cluster.vms}
     vms_here = [v for v, n in placements.items() if n == node.name]
-    if method == "cpu": return sum(vm_map[v].cpu_usage for v in vms_here) / node.cpu_total if node.cpu_total else 0
-    if method.endswith("psi"):
+    if method is Method.Cpu: return sum(vm_map[v].cpu_usage for v in vms_here) / node.cpu_total if node.cpu_total else 0
+    if method.is_psi:
         # Sum of guest footprints
-        p_field = "cpu_pressure" if "cpu" in method else "memory_pressure" if "memory" in method else "io_pressure"
-        return sum(float(getattr(vm_map[v], p_field)) for v in vms_here) / 100.0
+        return sum(vm_map[v].pressure(method.resource) for v in vms_here) / 100.0
     # memory
     return sum(vm_map[v].memory for v in vms_here) / node.memory_total if node.memory_total else 0.0
 
@@ -414,11 +413,10 @@ def _node_load_pct(cluster: Cluster, node: Node, placements: Dict[str, str]) -> 
     vm_map = {v.name: v for v in cluster.vms}
     vms_here = [v for v, n in placements.items() if n == node.name]
     method = cluster.balancing.method
-    if method == "cpu":
+    if method is Method.Cpu:
         return sum(vm_map[v].cpu_usage for v in vms_here) / node.cpu_total if node.cpu_total else 0.0
-    if "psi" in method:
-        field = "cpu_pressure" if "cpu" in method else "memory_pressure" if "memory" in method else "io_pressure"
-        return sum(float(getattr(vm_map[v], field)) for v in vms_here) / 100.0
+    if method.is_psi:
+        return sum(vm_map[v].pressure(method.resource) for v in vms_here) / 100.0
     return sum(vm_map[v].memory for v in vms_here) / node.memory_total if node.memory_total else 0.0
 
 
