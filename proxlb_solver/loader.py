@@ -132,7 +132,7 @@ def load_scenario(path: str | Path) -> Cluster:
         if len(t_vms) > 1:
             anti_affinity.append({"name": tag, "vms": t_vms, "hard": True, "origin": "plb"})
 
-    pin = cd.get("pin", []) + tag_pin
+    pin = [{**r, "origins": r.get("origins", [])} for r in cd.get("pin", [])] + tag_pin
 
     constraints = Constraints(
         affinity=affinity,

@@ -574,3 +574,32 @@ class TestHtmlEscaping:
         html = (out / "solver_run_20260226_143001.html").read_text()
         assert "<script>alert(1)</script>" not in html
         assert "&lt;script&gt;" in html
+
+
+# ---------------------------------------------------------------------------
+# Actual CPU load bars
+# ---------------------------------------------------------------------------
+
+def _run_with_cpu_usage(usage: float) -> list[dict[str, Any]]:
+    gib = 1024 ** 3
+    return [
+        {"event": "cluster_state", "ts": _ts(), "method": "memory",
+         "nodes": {"node1": {"cpu_total": 8, "memory_total": 16 * gib}},
+         "guests": {"vm-1": {"node": "node1", "cpu": 2, "memory": 2 * gib,
+                             "cpu_usage": usage}}},
+        {"event": "solver_run", "ts": _ts(), "status": "OPTIMAL",
+         "migrations": 0, "gap": 0.0, "wall_time_ms": 1.0, "feasible": True},
+    ]
+
+
+@pytest.mark.parametrize("usage, shown", [(0.0, False), (0.5, True)])
+def test_cpu_load_shown_only_with_nonzero_usage(tmp_path: Path, usage: float, shown: bool) -> None:
+    """cluster_state always has cpu_usage; all zeros means no data, not idle."""
+    log_dir = tmp_path / "logs"
+    log_dir.mkdir()
+    _write_jsonl(log_dir / "solver_run_20260226_143000.jsonl", _run_with_cpu_usage(usage))
+
+    from proxlb_solver.shadow_reporter import generate_report
+    generate_report(log_dir, tmp_path / "out")
+    html = (tmp_path / "out" / "solver_run_20260226_143000.html").read_text(encoding="utf-8")
+    assert ("CPU alloc / actual load" in html) is shown

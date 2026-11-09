@@ -15,7 +15,9 @@ JSONL event types written to the run file:
   unbreakable_cycle — cycle that could not be resolved by the planner
   compare        — per-VM comparison between solver and ProxLB decisions
                    result: agree | differ | solver_only | proxlb_only
-  infeasible     — solver found no valid placement; lists blocking VMs
+  infeasible     — solver found no valid placement; lists blocking VMs and
+                   a 'blame' list of rule descriptions that suffice to prove
+                   infeasibility (from explain_infeasibility)
   error          — unexpected exception during shadow run
   proxlb_executed — appended after Balancing() completes; dry_run=True when
                     ProxLB ran with --dry-run (no migrations were issued)
@@ -158,17 +160,24 @@ def _shadow_inner(
         # Log ProxLB's planned migrations first — independent of the solver,
         # so they are always captured even if cluster building or solving fails.
         _write_proxlb_plan(proxlb_data, f)
-        _write_cluster_state(proxlb_data, solver_cfg, f)
 
         from .adapter import from_proxlb_data
-        from .solver import solve
+        from .solver import solve, explain_infeasibility
         from .planner import plan_migrations
 
-        cluster = from_proxlb_data(
-            proxlb_data,
-            use_reservations=solver_cfg.use_reservations,
-            method=solver_cfg.method,
-        )
+        try:
+            cluster = from_proxlb_data(
+                proxlb_data,
+                use_reservations=solver_cfg.use_reservations,
+                method=solver_cfg.method,
+            )
+        except Exception:
+            # Keep the before-state view for the shadow report; the outer
+            # handler logs the error event.
+            _write_partial_cluster_state(proxlb_data, solver_cfg, f)
+            raise
+
+        _write_cluster_state(cluster, proxlb_data, f)
 
         # Log all identified constraints before solving so the full rule picture
         # is always visible, even if the solver fails or times out.
@@ -197,7 +206,14 @@ def _shadow_inner(
         )
 
         if not solution.feasible:
-            _write(f, {"event": "infeasible", "blocking_vms": solution.blocking_vms})
+            blame = explain_infeasibility(cluster, time_limit_s=min(time_limit_s, 10.0))
+            _write(f, {
+                "event":        "infeasible",
+                "blocking_vms": solution.blocking_vms,
+                "blame":        blame,
+            })
+            if blame:
+                log.info(f"[solver] infeasible blame: {blame}")
             return None
 
         plan = plan_migrations(cluster, solution)
@@ -252,45 +268,108 @@ def _write_proxlb_plan(proxlb_data: ProxLbData, f: IO[str]) -> None:
             })
 
 
-def _write_cluster_state(proxlb_data: ProxLbData, solver_cfg: Config.Solver, f: IO[str]) -> None:
-    """Emit a ``cluster_state`` snapshot used for before/after load reporting.
+def _write_partial_cluster_state(
+    proxlb_data: ProxLbData, solver_cfg: Config.Solver, f: IO[str],
+) -> None:
+    """Emit a minimal ``cluster_state`` straight from *proxlb_data*.
 
-    Captures per-node memory and CPU totals plus the current VM placement so
-    the reporter can compute the projected load after applying the solver plan.
+    Used only when building the :class:`Cluster` failed. It carries just what
+    the shadow report needs for its before-state view and is marked
+    ``partial`` so ``jsonl_to_scenario.py`` refuses to treat it as a full
+    solver input. Never raises: the adapter error is what matters.
     """
-    method = _effective_method(proxlb_data, solver_cfg)
+    try:
+        nodes: dict[str, Any] = {}
+        for name, nd in proxlb_data.nodes.items():
+            raw_total = nd.memory.used + nd.memory.free
+            nodes[name] = {
+                "cpu_total":    nd.cpu.total,
+                "memory_total": raw_total if raw_total > 0 else nd.memory.total,
+                "memory_used":  nd.memory.used,
+            }
+        guests: dict[str, Any] = {}
+        for name, gd in proxlb_data.guests.items():
+            entry: dict[str, Any] = {
+                "node":   gd.node_current,
+                "memory": gd.memory.total,
+                "cpu":    gd.cpu.total,
+            }
+            if gd.memory.used > 0:
+                entry["memory_used"] = gd.memory.used
+            if gd.cpu.used > 0:
+                entry["cpu_usage"] = gd.cpu.used
+            guests[name] = entry
+        _write(f, {
+            "event":   "cluster_state",
+            "partial": True,
+            "method":  str(solver_cfg.method or proxlb_data.meta.balancing.method),
+            "nodes":   nodes,
+            "guests":  guests,
+        })
+    except Exception:
+        pass
 
+
+def _write_cluster_state(cluster: Cluster, proxlb_data: ProxLbData, f: IO[str]) -> None:
+    """Emit a ``cluster_state`` snapshot of the solver's full input.
+
+    All node and VM fields are taken from the already-built :class:`Cluster`
+    so the snapshot matches exactly what the solver sees. Per-node and
+    per-guest ``memory_used`` are runtime metrics not present on the Cluster
+    model; they are pulled from *proxlb_data* and kept so the reporter can
+    compute before/after load.
+
+    The snapshot is rich enough that ``scripts/jsonl_to_scenario.py`` can
+    reconstruct a faithful scenario YAML from it.
+    """
     nodes: dict[str, Any] = {}
-    for name, nd in proxlb_data.nodes.items():
-        mem_used  = nd.memory.used
-        mem_free  = nd.memory.free
-        raw_total = (mem_used + mem_free) if (mem_used + mem_free) > 0 else nd.memory.total
-        nodes[name] = {
-            "cpu_total":    nd.cpu.total,
-            "memory_total": raw_total,
-            "memory_used":  mem_used,
+    for n in cluster.nodes:
+        entry: dict[str, Any] = {
+            "cpu_total":       n.cpu_total,
+            "memory_total":    n.memory_total,
+            "memory_reserve":  n.memory_reserve,
+            "cpu_reserve":     n.cpu_reserve,
+            "storage_free":    dict(n.storage_free),
+            "storage_reserve": dict(n.storage_reserve),
+            "cpu_pressure":    n.cpu_pressure,
+            "memory_pressure": n.memory_pressure,
+            "io_pressure":     n.io_pressure,
+            "maintenance":     n.maintenance,
         }
+        nd = proxlb_data.nodes.get(n.name)
+        mu = nd.memory.used if nd is not None else 0
+        if mu > 0:
+            entry["memory_used"] = mu
+        nodes[n.name] = entry
 
     guests: dict[str, dict[str, Any]] = {}
-    for name, gd in proxlb_data.guests.items():
-        entry: dict[str, Any] = {
-            "node":   gd.node_current,
-            "memory": gd.memory.total,
-            "cpu":    gd.cpu.total,
+    for v in cluster.vms:
+        entry = {
+            "node":            v.node,
+            "cpu":             v.cpu,
+            "memory":          v.memory,
+            "cpu_usage":       v.cpu_usage,
+            "cpu_pressure":    v.cpu_pressure,
+            "memory_pressure": v.memory_pressure,
+            "io_pressure":     v.io_pressure,
+            "disks":           dict(v.disks),
+            "priority":        v.priority,
+            "vm_type":         v.vm_type,
         }
-        mem_used = gd.memory.used
-        if mem_used > 0:
-            entry["memory_used"] = mem_used
-        cpu_used = gd.cpu.used
-        if cpu_used > 0:
-            entry["cpu_usage"] = cpu_used
-        guests[name] = entry
+        gd = proxlb_data.guests.get(v.name)
+        mu = gd.memory.used if gd is not None else 0
+        if mu > 0:
+            entry["memory_used"] = mu
+        guests[v.name] = entry
 
     _write(f, {
-        "event":  "cluster_state",
-        "method": method,
-        "nodes":  nodes,
-        "guests": guests,
+        "event":       "cluster_state",
+        "name":        cluster.name,
+        "description": cluster.description,
+        "method":      cluster.balancing.method,  # kept at top level for reporter
+        "balancing":   cluster.balancing.model_dump(mode="json"),
+        "nodes":       nodes,
+        "guests":      guests,
     })
 
 

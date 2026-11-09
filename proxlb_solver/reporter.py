@@ -1,6 +1,7 @@
 """Result reporting and gap calculations for ProxLB Solver."""
 
 from __future__ import annotations
+import html
 import re
 import xml.etree.ElementTree as ET
 from collections import defaultdict
@@ -8,6 +9,31 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Any
 from .models import Cluster, Method, Migration, Solution, VM, Node, MigrationPlan
+
+
+def _format_blame_line(entry: dict[str, Any]) -> str:
+    """One-line human-readable description of a blame entry."""
+    t = entry.get("type", "?")
+    if t == "maintenance":
+        return f"maintenance on node {entry.get('node')!r}"
+    if t == "evacuate":
+        return f"evacuate flag on node {entry.get('node')!r}"
+    if t == "ignore":
+        return f"ignore rule pinning VM {entry.get('vm')!r} to {entry.get('node')!r}"
+    if t == "pin":
+        nodes = entry.get("nodes") or []
+        return f"pin: VM {entry.get('vm')!r} restricted to {nodes}"
+    if t == "anti_affinity":
+        return f"anti-affinity rule {entry.get('name')!r} over VMs {entry.get('vms') or []}"
+    if t == "affinity":
+        return f"affinity rule {entry.get('name')!r} over VMs {entry.get('vms') or []}"
+    if t == "capacity_memory":
+        return f"memory capacity of node {entry.get('node')!r}"
+    if t == "capacity_cpu":
+        return f"CPU capacity of node {entry.get('node')!r}"
+    if t == "capacity_storage":
+        return f"storage capacity of pool {entry.get('pool')!r} on node {entry.get('node')!r}"
+    return str(entry)
 
 # ── Gap Calculation Helpers (must match solver logic) ──
 
@@ -117,7 +143,8 @@ def _vm_rule_origins(vm_name: str, cluster: Cluster) -> str:
 
 # ── Reporting ──
 
-def print_report(cluster: Cluster, solution: Solution) -> None:
+def print_report(cluster: Cluster, solution: Solution,
+                 blame: list[dict[str, Any]] | None = None) -> None:
     """Print a terminal report of the solution."""
     from rich.console import Console
     from rich.table import Table
@@ -130,6 +157,10 @@ def print_report(cluster: Cluster, solution: Solution) -> None:
         console.print(f"[red]INFEASIBLE[/red] — {solution.stats.status}")
         if solution.blocking_vms:
             console.print(f"  Blockers: {', '.join(solution.blocking_vms)}")
+        if blame:
+            console.print("  Blame (rules that together make it infeasible):")
+            for entry in blame:
+                console.print(f"    • {_format_blame_line(entry)}")
         return
 
     if not solution.path_feasible:
@@ -424,6 +455,7 @@ def write_markdown_report(
     results: list[tuple[str, Cluster, Solution]],
     path: str | Path,
     migration_plans: dict[str, MigrationPlan] | None = None,
+    infeasibility_blame: dict[str, list[dict[str, Any]]] | None = None,
 ) -> None:
     """Write a Markdown report."""
     path = Path(path)
@@ -494,6 +526,12 @@ def write_markdown_report(
         if not solution.feasible:
             L.append(f"**INFEASIBLE** — {solution.stats.status}")
             L.append("")
+            blame = infeasibility_blame.get(scenario_path) if infeasibility_blame else None
+            if blame:
+                L.append("**Blame** — rules that together make it infeasible:")
+                for entry in blame:
+                    L.append(f"- {_format_blame_line(entry)}")
+                L.append("")
             # Expectations
             plan = migration_plans.get(scenario_path) if migration_plans else None
             checks = _check_expectations(cluster, solution, plan)
@@ -615,6 +653,7 @@ def write_html_report(
     results: list[tuple[str, Cluster, Solution]],
     path: str | Path,
     migration_plans: dict[str, MigrationPlan] | None = None,
+    infeasibility_blame: dict[str, list[dict[str, Any]]] | None = None,
 ) -> None:
     """Write a self-contained HTML report with sidebar navigation."""
     path = Path(path)
@@ -828,6 +867,13 @@ a:hover { text-decoration: underline; }
             h.append(f'<p class="err"><b>INFEASIBLE</b> — {solution.stats.status}</p>')
             if solution.blocking_vms:
                 h.append(f'<p>Blockers: {", ".join(solution.blocking_vms)}</p>')
+            blame = infeasibility_blame.get(scenario_path) if infeasibility_blame else None
+            if blame:
+                h.append('<p><b>Blame</b> — rules that together make it infeasible:</p>')
+                h.append('<ul>')
+                for blame_entry in blame:
+                    h.append(f'<li>{html.escape(_format_blame_line(blame_entry))}</li>')
+                h.append('</ul>')
             _html_checks_table(h, checks)
             h.append("</div>")
             continue

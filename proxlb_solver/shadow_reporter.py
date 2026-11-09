@@ -709,8 +709,9 @@ def _render_run(run: dict[str, Any], output_dir: Path) -> None:
                 mem_cfg_before[nd_name] += int(gd.get("memory", 0))
                 cpu_alloc_before[nd_name] += int(gd.get("cpu", 0))
 
-        # Actual CPU load per node — optional, requires cpu_usage in guest data
-        has_cpu_usage = any("cpu_usage" in gd for gd in guests_data.values())
+        # Actual CPU load per node — optional. cluster_state always carries
+        # cpu_usage, so treat all-zero as "ProxLB reported no CPU usage".
+        has_cpu_usage = any(float(gd.get("cpu_usage") or 0) > 0 for gd in guests_data.values())
         cpu_load_before: dict[str, float] = {n: 0.0 for n in nodes_data}
         if has_cpu_usage:
             for gd in guests_data.values():
