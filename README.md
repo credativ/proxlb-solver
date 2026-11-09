@@ -156,7 +156,7 @@ The ProxLB Solver is tuned for **Stability over Agility** by default.
 
 #### 1. Operational Safety
 *   **`max_node_inflow` (Default: 1)**: Only one guest at a time can migrate *into* a host. This prevents memory or CPU peaks that could trigger OOM on the target host.
-*   **`max_parallel_migrations` (Default: 2)**: Limits simultaneous migrations cluster-wide.
+*   **Migration concurrency (Default: sequential)**: Follows ProxLB's `parallel` and `parallel_jobs` settings, so the migration plan matches how ProxLB executes it: one migration at a time unless `parallel: True`, then up to `parallel_jobs` (minimum 1). Standalone scenario files set this with `max_parallel_migrations` (Default: 2) instead.
 *   **`balanciness` (Default: 3 — Moderate)**:
     *   Level 1–2: Only moves guests for maintenance or hard rule violations.
     *   Level 3: Rebalances only if the spread exceeds ~15%.

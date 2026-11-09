@@ -231,3 +231,39 @@ def test_adapter_handles_lxc_type():
     ct = next(v for v in cluster.vms if v.name == "container-1")
 
     assert ct.vm_type == "ct", f"Expected vm_type='ct', got {ct.vm_type!r}"
+
+
+# ---------------------------------------------------------------------------
+# Migration concurrency: derived from ProxLB's parallel / parallel_jobs
+# ---------------------------------------------------------------------------
+
+def _data_with_balancing(balancing: dict) -> dict:
+    return {
+        "meta": {"cluster_name": "test", "balancing": balancing},
+        "nodes": {"node1": dict(_NODE)},
+        "guests": {},
+    }
+
+
+@pytest.mark.parametrize("balancing, expected", [
+    ({},                                         1),  # ProxLB default: parallel=False
+    ({"parallel": False, "parallel_jobs": 5},    1),
+    ({"parallel": True},                         5),  # ProxLB default parallel_jobs
+    ({"parallel": True, "parallel_jobs": 3},     3),
+    ({"parallel": True, "parallel_jobs": 0},     1),  # clamped like ProxLB
+    ({"parallel": True, "parallel_jobs": -2},    1),
+])
+def test_max_parallel_migrations_follows_proxlb_job_limit(balancing, expected):
+    """Planner concurrency must match how many jobs ProxLB's Balancing runs at once."""
+    from proxlb_solver.adapter import from_proxlb_data
+
+    cluster = from_proxlb_data(_data_with_balancing(balancing))
+    assert cluster.balancing.max_parallel_migrations == expected
+
+
+def test_max_parallel_migrations_key_is_ignored():
+    """ProxLB has no max_parallel_migrations setting; it must not bypass the job limit."""
+    from proxlb_solver.adapter import from_proxlb_data
+
+    cluster = from_proxlb_data(_data_with_balancing({"max_parallel_migrations": 10}))
+    assert cluster.balancing.max_parallel_migrations == 1
